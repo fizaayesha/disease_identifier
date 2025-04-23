@@ -53,7 +53,7 @@ model = genai.GenerativeModel(model_name="gemini-1.5-flash", generation_config=g
 
 st.set_page_config(page_title="Disease Predictor", page_icon=":robot")
 
-st.image("./logo.jpeg", width=200)
+st.image("./logo.png", width=200)
 
 st.title("Disease Predictor🧑‍⚕️")
 
