@@ -2,8 +2,8 @@ import streamlit as st
 from pathlib import Path
 import google.generativeai as genai
 
-from api_key import api_key
-genai.configure(api_key=api_key)
+import os
+genai.configure(api_key=os.getenv("API_KEY"))
 generation_config = {
     "temperature": 0.4,
     "top_p": 1,
@@ -88,7 +88,7 @@ if submit_button:
     if response:
         st.title("Here is the analysis based on your image")
         st.write(response.text)
-        
+
     # print(response.text)
 
 
