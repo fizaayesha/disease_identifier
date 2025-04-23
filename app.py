@@ -51,13 +51,13 @@ Please provide me an output response with these 4 headings Detailed Analysis,Fin
 
 model = genai.GenerativeModel(model_name="gemini-1.5-flash", generation_config=generation_config,safety_settings=safety_settings)
 
-st.set_page_config(page_title="Disease Predictor", page_icon=":robot")
+st.set_page_config(page_title="Disease Identifier", page_icon=":robot")
 
 st.image("./logo.jpeg", width=200)
 
-st.title("Disease Predictor🧑‍⚕️")
+st.title("Disease Identifier🧑‍⚕️")
 
-st.header("Welcome to the Disease Predictor App! 🌟. It helps the user to identify the disease and suggests the treatmnet as well!")
+st.header("Welcome to the Disease Identifier App! 🌟. It helps the user to identify the disease and suggests the treatmnet as well!")
   
 upload_file = st.file_uploader("Upload the image of the disease for the analysis", type=["jpeg", "jpg", "png", "svg"])
 
