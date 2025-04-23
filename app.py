@@ -2,8 +2,7 @@ import streamlit as st
 from pathlib import Path
 import google.generativeai as genai
 
-import os
-genai.configure(api_key=os.getenv("API_KEY"))
+genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 generation_config = {
     "temperature": 0.4,
     "top_p": 1,
