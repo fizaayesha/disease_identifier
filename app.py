@@ -62,6 +62,9 @@ st.header("Welcome to the Disease Predictor App! 🌟. It helps the user to iden
   
 upload_file = st.file_uploader("Upload the image of the disease for the analysis", type=["jpeg", "jpg", "png", "svg"])
 
+if upload_file:
+    st.image(upload_file,width=200, caption="Uploaded Image")
+
 submit_button = st.button("Generate the Analysis")\
 
 if submit_button:
@@ -80,7 +83,12 @@ if submit_button:
         system_prompt,
     ]
 
+    st.image(image_data, width=300)
     response = model.generate_content(prompt_parts)
+    if response:
+        st.title("Here is the analysis based on your image")
+        st.write(response.text)
+        
     # print(response.text)
-    st.write(response.text)
+
 
