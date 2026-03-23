@@ -73,24 +73,12 @@ GOOGLE_API_KEY = "your-google-api-key"
 streamlit run app.py
 
 ---
+
 ## 🤝 Contributing
 
-We welcome contributions from the community! 🚀
-
-Steps to Contribute:
-Fork the repository
-Create a new branch (feature/your-feature-name)
-Make your changes
-Commit and push
-Open a Pull Request
+We welcome contributions from the community! 🚀  
+Please check the [CONTRIBUTING.md](./CONTRIBUTING.md) file for detailed guidelines.
 
 ## 🏷️ Good First Issues
 
-If you're new to open source, you can start with:
-
-Improve UI/UX
-Add loading indicators
-Add input validation
-Enhance error handling
-
-Check issues labeled good-first-issue
+If you're new to open source, start with issues labeled `good-first-issue`.
