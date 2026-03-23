@@ -127,7 +127,7 @@ New to open source? Start with beginner-friendly tasks:
 - ✅ Adding input validation
 - 🛡️ Improving error handling
 
-Find these tasks under issues labeled [`good-first-issue`](../../issues?q=label%3Agood-first-issue).
+Find these tasks under issues labeled [`good first issue`](../../issues?q=label%3Agood first issue).
 
 ---
 
