@@ -1,84 +1,136 @@
-# Disease Identifier 🧑‍⚕️
+# 🧑‍⚕️ Disease Identifier
 
-An AI-powered medical image analysis web application that helps users understand potential health issues from uploaded images. The app leverages Google Gemini API to generate structured medical insights including analysis, findings, and recommendations.
+> An AI-powered web application that helps users understand possible health issues from medical images using the Google Gemini API.
 
-> ⚠️ Disclaimer: This tool is for educational and informational purposes only. Always consult a qualified medical professional before making any decisions.
+> [!WARNING]
+> **Disclaimer:** This tool is for **educational and informational purposes only**. Always consult a qualified doctor before making any medical decisions.
 
 ---
 
-## 🚀 Features
+## 🌐 Live Demo
 
-- 📤 Upload medical images (JPG, PNG, etc.)
-- 🧠 AI-based disease analysis using Gemini
-- 📋 Structured medical report:
+👉 [disease-identifier.streamlit.app](https://disease-identifier.streamlit.app/)
+
+---
+
+## ✨ Features
+
+- 📤 Upload medical images (JPG or PNG)
+- 🤖 AI-based disease analysis powered by Google Gemini
+- 📋 Generates a structured report including:
   - Detailed Analysis
   - Findings Report
   - Recommendations
   - Treatment Suggestions
-- ⚡ Fast and interactive UI with Streamlit
+- ⚡ Fast and interactive UI built with Streamlit
 
 ---
 
 ## 🏗️ Architecture
 
-User Upload → Streamlit UI → Gemini API → AI Response → Structured Output
+```
+User uploads image
+       ↓
+Streamlit Interface
+       ↓
+Gemini API processes image
+       ↓
+AI generates response
+       ↓
+Structured output shown to user
+```
 
 ---
 
-## 🧠 Tech Stack
+## 🛠️ Tech Stack
 
-- Frontend/UI: Streamlit  
-- Backend: Python  
-- AI Model: Google Gemini API  
-- Deployment: Streamlit Cloud  
-
----
-
-## 📸 Demo
-
-👉 Live App: https://disease-identifier.streamlit.app/  
-(Add screenshots here for better visibility)
+| Layer | Technology |
+|---|---|
+| Frontend / UI | Streamlit |
+| Backend | Python |
+| AI Model | Google Gemini API |
+| Deployment | Streamlit Cloud |
 
 ---
 
-## ⚙️ Setup Instructions
+## 🚀 Setup Instructions
 
 ### Prerequisites
 
-- Python 3.x
-- Streamlit
+- Python 3.x installed
+- Streamlit installed
 
----
+### Steps
 
-### 🔧 Local Setup
+**1. Clone the repository**
 
-1. Clone the Repository
 ```bash
 git clone https://github.com/fizaayesha/disease_identifier.git
 cd disease_identifier
+```
 
-2. Create Virtual Environment
+**2. Create and activate a virtual environment**
+
+```bash
 python -m venv venv
-source venv/bin/activate   # For Linux/Mac
-venv\Scripts\activate      # For Windows
+```
 
-3. Install Dependencies
+- On Linux / Mac:
+  ```bash
+  source venv/bin/activate
+  ```
+- On Windows:
+  ```bash
+  venv\Scripts\activate
+  ```
+
+**3. Install dependencies**
+
+```bash
 pip install -r requirements.txt
+```
 
-4. Add API Key
-Create a .streamlit directory and inside it create secrets.toml file:
+**4. Add your API key**
+
+Create a `.streamlit/secrets.toml` file and add:
+
+```toml
 GOOGLE_API_KEY = "your-google-api-key"
+```
 
-5. Run the App
+**5. Run the application**
+
+```bash
 streamlit run app.py
+```
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions from the community! 🚀  
-Please check the [CONTRIBUTING.md](./CONTRIBUTING.md) file for detailed guidelines.
+Contributions are welcome! 🚀
 
-## 🏷️ Good First Issues
+1. Fork the repository
+2. Create a new branch: `git checkout -b feature/your-feature-name`
+3. Make your changes
+4. Commit and push: `git commit -m "Add your message"` → `git push origin feature/your-feature-name`
+5. Open a Pull Request
 
-If you're new to open source, start with issues labeled `good-first-issue`.
+For detailed guidelines, check the [CONTRIBUTING.md](CONTRIBUTING.md) file.
+
+### 🟢 Good First Issues
+
+New to open source? Start with beginner-friendly tasks:
+
+- 🎨 Improving UI/UX
+- ⏳ Adding loading indicators
+- ✅ Adding input validation
+- 🛡️ Improving error handling
+
+Find these tasks under issues labeled [`good-first-issue`](../../issues?q=label%3Agood-first-issue).
+
+---
+
+## 📄 License
+
+This project is open source. See the [LICENSE](LICENSE) file for details.
