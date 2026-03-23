@@ -72,6 +72,7 @@ GOOGLE_API_KEY = "your-google-api-key"
 5. Run the App
 streamlit run app.py
 
+---
 ## 🤝 Contributing
 
 We welcome contributions from the community! 🚀
