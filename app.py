@@ -83,7 +83,8 @@ if submit_button:
     ]
 
     st.image(image_data, width=300)
-    response = model.generate_content(prompt_parts)
+    with st.spinner("Analyzing image..."):
+        response = model.generate_content(prompt_parts)
     if response:
         st.title("Here is the analysis based on your image")
         st.write(response.text)
