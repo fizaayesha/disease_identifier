@@ -103,7 +103,12 @@ if upload_file:
 submit_button = st.button("Generate the Analysis")\
 
 if submit_button:
-    image_data=upload_file.getvalue()
+    # 检查是否上传了图片
+    if upload_file is None:
+        st.error("⚠️ 请先上传图片进行分析！")
+        st.info("请使用上面的文件上传器选择一张图片。")
+    else:
+        image_data = upload_file.getvalue()
 
 
 
