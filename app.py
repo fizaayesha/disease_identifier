@@ -54,18 +54,19 @@ model = genai.GenerativeModel(model_name="gemini-1.5-flash", generation_config=g
 st.set_page_config(page_title="Disease Identifier", page_icon=":robot")
 
 # Theme state initialization
-if 'theme' not in st.session_state:
-    st.session_state.theme = 'light'
+if 'theme_mode' not in st.session_state:
+    st.session_state.theme_mode = True
 
-# Theme toggle button
-is_dark = st.toggle("Dark Mode", value=(st.session_state.theme == 'dark'))
-st.session_state.theme = 'dark' if is_dark else 'light'
+# Theme toggle button aligned to the right
+col1, col2 = st.columns([8, 2])
+with col2:
+    st.toggle("Dark Mode", key="theme_mode")
 
 # Define theme colors
 theme_colors = {
-    'dark': {'bg': '#1E1E1E', 'text': '#FFFFFF', 'btn_border': '#555555', 'btn_bg': '#333333', 'uploader': '#2E2E2E'},
-    'light': {'bg': '#FFFFFF', 'text': '#000000', 'btn_border': '#CCCCCC', 'btn_bg': '#F0F2F6', 'uploader': '#F0F2F6'}
-}[st.session_state.theme]
+    True: {'bg': '#1E1E1E', 'text': '#FFFFFF', 'btn_border': '#555555', 'btn_bg': '#333333', 'uploader': '#2E2E2E'},
+    False: {'bg': '#FFFFFF', 'text': '#000000', 'btn_border': '#CCCCCC', 'btn_bg': '#F0F2F6', 'uploader': '#F0F2F6'}
+}[st.session_state.theme_mode]
 
 # Apply theme CSS using st.markdown
 st.markdown(f"""
