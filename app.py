@@ -53,6 +53,42 @@ model = genai.GenerativeModel(model_name="gemini-1.5-flash", generation_config=g
 
 st.set_page_config(page_title="Disease Identifier", page_icon=":robot")
 
+# Theme state initialization
+if 'theme_mode' not in st.session_state:
+    st.session_state.theme_mode = True
+
+col1, col2 = st.columns([8, 2])
+with col2:
+    st.toggle("Dark Mode", key="theme_mode")
+
+# Define theme colors
+theme_colors = {
+    True: {'bg': '#1E1E1E', 'text': '#FFFFFF', 'btn_border': '#555555', 'btn_bg': '#333333', 'uploader': '#2E2E2E'},
+    False: {'bg': '#FFFFFF', 'text': '#000000', 'btn_border': '#CCCCCC', 'btn_bg': '#F0F2F6', 'uploader': '#F0F2F6'}
+}[st.session_state.theme_mode]
+
+# Apply theme CSS using st.markdown
+st.markdown(f"""
+<style>
+    .stApp, .stApp > header {{
+        background-color: {theme_colors['bg']} !important;
+        color: {theme_colors['text']} !important;
+    }}
+    h1, h2, h3, h4, h5, h6, p, label, span, div.stMarkdown {{
+        color: {theme_colors['text']} !important;
+    }}
+    .stButton>button, [data-testid="stFileUploader"] button {{
+        border-color: {theme_colors['btn_border']} !important;
+        color: {theme_colors['text']} !important;
+        background-color: {theme_colors['btn_bg']} !important;
+    }}
+    [data-testid="stFileUploader"] section {{
+        background-color: {theme_colors['uploader']} !important;
+        color: {theme_colors['text']} !important;
+    }}
+</style>
+""", unsafe_allow_html=True)
+
 st.image("./logo.jpeg", width=200)
 
 st.title("Disease Identifier🧑‍⚕️")
