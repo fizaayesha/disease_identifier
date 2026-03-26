@@ -57,7 +57,6 @@ st.set_page_config(page_title="Disease Identifier", page_icon=":robot")
 if 'theme_mode' not in st.session_state:
     st.session_state.theme_mode = True
 
-# Theme toggle button aligned to the right
 col1, col2 = st.columns([8, 2])
 with col2:
     st.toggle("Dark Mode", key="theme_mode")
@@ -78,10 +77,10 @@ st.markdown(f"""
     h1, h2, h3, h4, h5, h6, p, label, span, div.stMarkdown {{
         color: {theme_colors['text']} !important;
     }}
-    .stButton>button {{
-        border-color: {theme_colors['btn_border']};
-        color: {theme_colors['text']};
-        background-color: {theme_colors['btn_bg']};
+    .stButton>button, [data-testid="stFileUploader"] button {{
+        border-color: {theme_colors['btn_border']} !important;
+        color: {theme_colors['text']} !important;
+        background-color: {theme_colors['btn_bg']} !important;
     }}
     [data-testid="stFileUploader"] section {{
         background-color: {theme_colors['uploader']} !important;
