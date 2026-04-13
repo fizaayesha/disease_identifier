@@ -1,8 +1,13 @@
 import streamlit as st
 from pathlib import Path
-import google.generativeai as genai
+from google import genai
+import re
+from PIL import Image
+import io
 
-genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+# NEW CLIENT
+client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
+
 generation_config = {
     "temperature": 0.4,
     "top_p": 1,
@@ -14,7 +19,8 @@ safety_settings = [
     {
         "category": "HARM_CATEGORY_HARASSMENT",
         "threshold": "BLOCK_MEDIUM_AND_ABOVE",
-    },        {
+    },        
+    {
         "category": "HARM_CATEGORY_HATE_SPEECH",
         "threshold": "BLOCK_MEDIUM_AND_ABOVE",
     },
@@ -37,19 +43,26 @@ Your responsibilities include:
   
 2. Findings Report:- Document all observed anomalies or signs of disease. Clearly articulate these finding in a structure format.
 
-3. Recommnedations and Next Steps: Based on your analysis, suggest potential next steps, including for the tests and treatment ass applicable.
+3. Recommendations and Next Steps: Based on your analysis, suggest potential next steps, including for the tests and treatment ass applicable.
 
 4. Treatment Suggestions: If appropriate, recommend possible treatment options or interventions.
+
+5. Confidence Score: Provide a confidence score (0-100%) indicating how confident you are in your analysis.
 
 Important Notes:
 1. Scope of Response: Only respond if the image pertains to human health issues.
 2. Clarity of Image: In cases where the image quality impedes clear analysis, note that certain aspects are 'Unable to be determined based on the provided image.'
 3. Disclaimer: Accompany your analysis with the disclaimer "Consult with a Doctor before making any decisions"
 4. Your insights are invaluable in guiding clinical decisions. Please proceed with the analysis, adhering to the structured approach outlined above
-Please provide me an output response with these 4 headings Detailed Analysis,Findings Report, Recommnedations and Next Steps, Treatment Suggestions.
+Please provide me an output response with these 4 headings Detailed Analysis,Findings Report, Recommendations and Next Steps, Treatment Suggestions.
 """
 
-model = genai.GenerativeModel(model_name="gemini-1.5-flash", generation_config=generation_config,safety_settings=safety_settings)
+# Confidence extractor
+def extract_confidence(text):
+    match = re.search(r'(\d{1,3})\s*%', text)
+    if match:
+        return int(match.group(1))
+    return None
 
 st.set_page_config(page_title="Disease Identifier", page_icon=":robot")
 
@@ -67,7 +80,7 @@ theme_colors = {
     False: {'bg': '#FFFFFF', 'text': '#000000', 'btn_border': '#CCCCCC', 'btn_bg': '#F0F2F6', 'uploader': '#F0F2F6'}
 }[st.session_state.theme_mode]
 
-# Apply theme CSS using st.markdown
+# Apply theme CSS
 st.markdown(f"""
 <style>
     .stApp, .stApp > header {{
@@ -93,38 +106,43 @@ st.image("./logo.jpeg", width=200)
 
 st.title("Disease Identifier🧑‍⚕️")
 
-st.header("Welcome to the Disease Identifier App! 🌟. It helps the user to identify the disease and suggests the treatmnet as well!")
+st.header("Welcome to the Disease Identifier App! 🌟. It helps the user to identify the disease and suggests the treatment as well!")
   
-upload_file = st.file_uploader("Upload the image of the disease for the analysis", type=["jpeg", "jpg", "png", "svg"])
+upload_files = st.file_uploader(
+    "Upload the image of the disease for the analysis",
+    type=["jpeg", "jpg", "png", "svg"],
+    accept_multiple_files=True
+)
+# Multiple Images Uploading
+if upload_files:
+    for i, file in enumerate(upload_files):
+        st.image(file, width=200, caption=f"Uploaded Image {i+1}")
 
-if upload_file:
-    st.image(upload_file,width=200, caption="Uploaded Image")
+submit_button = st.button("Generate the Analysis")
 
-submit_button = st.button("Generate the Analysis")\
+if submit_button and upload_files:
+    for i, file in enumerate(upload_files):
+        image_data = file.getvalue()
 
-if submit_button:
-    image_data=upload_file.getvalue()
+        # FIXED: Convert to PIL Image
+        image = Image.open(io.BytesIO(image_data))
 
+        contents = [system_prompt, image]
 
+        st.image(image_data, width=300)
 
-    image_parts = [
-        {
-            "mime_type":"image/jpeg",
-            "data": image_data
-        }
-    ]
-    prompt_parts = [
-        image_parts[0],
-        system_prompt,
-    ]
+        with st.spinner(f"Analyzing image {i+1}..."):
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=contents
+            )
 
-    st.image(image_data, width=300)
-    with st.spinner("Analyzing image..."):
-        response = model.generate_content(prompt_parts)
-    if response:
-        st.title("Here is the analysis based on your image")
-        st.write(response.text)
+        if response:
+            st.title(f"Analysis for Image {i+1}")
 
-    # print(response.text)
+            confidence = extract_confidence(response.text)
+            if confidence is not None:
+                st.progress(confidence / 100)
+                st.markdown(f"### Confidence Score: **{confidence}%**")
 
-
+            st.write(response.text)
