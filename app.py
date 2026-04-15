@@ -1,5 +1,5 @@
 import streamlit as st
-from google import genai
+import google.generativeai as genai
 import re
 from PIL import Image
 import io
@@ -10,7 +10,7 @@ if "GOOGLE_API_KEY" not in st.secrets:
     st.stop()
 
 # ================= CLIENT =================
-client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
+client = genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 generation_config = {
     "temperature": 0.4,
