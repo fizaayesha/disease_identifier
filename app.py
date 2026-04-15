@@ -4,6 +4,10 @@ import re
 from PIL import Image
 import io
 from fpdf import FPDF
+import os
+import json
+from datetime import datetime
+import uuid
 
 # ================= API KEY CHECK =================
 if "GOOGLE_API_KEY" not in st.secrets:
@@ -90,6 +94,51 @@ def generate_pdf(clean_text, confidence):
     
     return pdf.output()
 
+# ================= HISTORY MANAGEMENT =================
+HISTORY_DIR = "history"
+METADATA_FILE = os.path.join(HISTORY_DIR, "metadata.json")
+IMAGES_DIR = os.path.join(HISTORY_DIR, "images")
+
+if not os.path.exists(IMAGES_DIR):
+    os.makedirs(IMAGES_DIR, exist_ok=True)
+
+def save_to_history(image, confidence, clean_text, filename):
+    history = []
+    if os.path.exists(METADATA_FILE):
+        try:
+            with open(METADATA_FILE, "r") as f:
+                history = json.load(f)
+        except:
+            history = []
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    image_id = str(uuid.uuid4())
+    image_path = os.path.join(IMAGES_DIR, f"{image_id}.png")
+    image.save(image_path)
+    
+    entry = {
+        "id": image_id,
+        "timestamp": timestamp,
+        "image_name": filename,
+        "image_path": image_path,
+        "confidence": confidence,
+        "text": clean_text
+    }
+    
+    history.insert(0, entry) # Most recent first
+    with open(METADATA_FILE, "w") as f:
+        json.dump(history, f, indent=4)
+    return entry
+
+def load_history():
+    if not os.path.exists(METADATA_FILE):
+        return []
+    try:
+        with open(METADATA_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return []
+
 # ================= STREAMLIT CONFIG =================
 st.set_page_config(page_title="Disease Identifier", page_icon="🧑‍⚕️")
 
@@ -138,8 +187,35 @@ submit_button = st.button("Generate Analysis")
 # ================= MAIN LOGIC =================
 if "analysis_results" not in st.session_state:
     st.session_state.analysis_results = []
+if "view_history" not in st.session_state:
+    st.session_state.view_history = None
+
+# Sidebar History
+with st.sidebar:
+    st.markdown("---")
+    st.header("📜 Analysis History")
+    history = load_history()
+    if not history:
+        st.info("No past analyses found.")
+    else:
+        if st.button("Clear History"):
+            if os.path.exists(METADATA_FILE):
+                os.remove(METADATA_FILE)
+            # Optionally delete images too, but for safety let's just clear metadata
+            st.rerun()
+            
+        for item in history:
+            # Display history items as buttons
+            if st.button(f"{item['timestamp']}\n{item['image_name']}", key=item['id'], use_container_width=True):
+                st.session_state.view_history = item
+
+        if st.session_state.view_history:
+            if st.button("⬅️ Back to Current", use_container_width=True):
+                st.session_state.view_history = None
+                st.rerun()
 
 if submit_button:
+    st.session_state.view_history = None # Clear history view when new analysis is triggered
     if not upload_files:
         st.error("Please upload at least one image before clicking 'Generate Analysis'.")
     else:
@@ -186,11 +262,33 @@ if submit_button:
                 "clean_text": clean_text,
                 "original_index": i + 1
             })
+            save_to_history(image, confidence, clean_text, file.name)
 
 # Display Persisted Results
-for result in st.session_state.analysis_results:
+results_to_show = []
+if st.session_state.view_history:
+    h = st.session_state.view_history
+    try:
+        results_to_show = [{
+            "image": Image.open(h['image_path']),
+            "confidence": h['confidence'],
+            "clean_text": h['text'],
+            "title": f"Historical Report: {h['image_name']}",
+            "timestamp": h['timestamp']
+        }]
+    except Exception as e:
+        st.error(f"Error loading history: {e}")
+else:
+    results_to_show = [
+        {**r, "title": f"Analysis for Image {r['original_index']}", "timestamp": None} 
+        for r in st.session_state.analysis_results
+    ]
+
+for result in results_to_show:
     st.markdown("---")
-    st.title(f"Analysis for Image {result['original_index']}")
+    if result.get("timestamp"):
+        st.caption(f"Analysis from {result['timestamp']}")
+    st.title(result['title'])
     st.image(result['image'], width=300)
 
     if result['confidence'] is not None:
@@ -213,7 +311,7 @@ for result in st.session_state.analysis_results:
     st.download_button(
         label="📥 Download Analysis Report as PDF",
         data=pdf_bytes,
-        file_name=f"analysis_report_{result['original_index']}.pdf",
+        file_name=f"analysis_report_{result.get('original_index', 'history')}.pdf",
         mime="application/pdf"
     )
 
