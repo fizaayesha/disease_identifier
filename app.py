@@ -3,6 +3,7 @@ from google import genai
 import re
 from PIL import Image
 import io
+from fpdf import FPDF
 
 # ================= API KEY CHECK =================
 if "GOOGLE_API_KEY" not in st.secrets:
@@ -47,6 +48,47 @@ def extract_confidence(text):
     if match:
         return float(match.group(0).replace('%', ''))
     return None
+
+# ================= PDF GENERATOR =================
+def generate_pdf(clean_text, confidence):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Header
+    try:
+        pdf.image("./logo.jpeg", x=10, y=8, w=33)
+    except:
+        pass
+        
+    pdf.set_font("helvetica", "B", 24)
+    pdf.set_text_color(30, 144, 255) # DodgerBlue
+    pdf.cell(0, 20, "Medical Analysis Report", ln=True, align="R")
+    
+    pdf.ln(10)
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(10)
+    
+    # Content
+    if confidence is not None:
+        pdf.set_font("helvetica", "B", 14)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(0, 10, f"Confidence Score: {confidence:.2f}%", ln=True)
+        pdf.ln(5)
+    
+    pdf.set_font("helvetica", "", 12)
+    pdf.set_text_color(50, 50, 50)
+    # Basic cleaning for standard PDF fonts
+    safe_text = clean_text.encode('latin-1', 'ignore').decode('latin-1')
+    pdf.multi_cell(0, 8, safe_text)
+    
+    # Footer
+    pdf.ln(20)
+    pdf.set_font("helvetica", "I", 10)
+    pdf.set_text_color(128, 128, 128)
+    pdf.multi_cell(0, 10, "Disclaimer: This report is AI-generated and intended for informational purposes only. Consult with a qualified healthcare professional before making any medical decisions.", align="C")
+    
+    return pdf.output()
 
 # ================= STREAMLIT CONFIG =================
 st.set_page_config(page_title="Disease Identifier", page_icon="🧑‍⚕️")
@@ -94,12 +136,15 @@ if upload_files:
 submit_button = st.button("Generate Analysis")
 
 # ================= MAIN LOGIC =================
+if "analysis_results" not in st.session_state:
+    st.session_state.analysis_results = []
+
 if submit_button:
     if not upload_files:
         st.error("Please upload at least one image before clicking 'Generate Analysis'.")
     else:
+        st.session_state.analysis_results = [] # Reset for new batch
         for i, file in enumerate(upload_files):
-
             # ===== IMAGE PROCESSING + ERROR HANDLING =====
             try:
                 image_data = file.getvalue()
@@ -107,8 +152,6 @@ if submit_button:
             except Exception:
                 st.error(f"Error processing image {i+1}")
                 continue
-
-            st.image(image, width=300)
 
             # ===== API CALL =====
             with st.spinner(f"Analyzing Image {i+1}..."):
@@ -127,33 +170,51 @@ if submit_button:
                 st.error(f"Invalid response for Image {i+1}")
                 continue
 
-            st.title(f"Analysis for Image {i+1}")
-
             # ===== CONFIDENCE EXTRACTION =====
             confidence = extract_confidence(response.text)
-
-            if confidence is not None:
-                st.progress(confidence / 100)
-                st.markdown(f"### Confidence Score: **{confidence:.2f}%**")
-
-                if confidence > 80:
-                    st.success("High Confidence Prediction")
-                elif confidence > 50:
-                    st.info("Moderate Confidence Prediction")
-                else:
-                    st.error("Low Confidence Prediction")
-            else:
-                st.warning("⚠️ Confidence score not found in AI response")
 
             # ===== CLEAN RESPONSE =====
             clean_text = re.sub(
                 r'Confidence Score:\s*\b(100|[0-9]{1,2})(\.\d+)?\s*%',
                 '',
                 response.text
-            )
+            ).strip()
 
-            st.write(clean_text.strip())
+            st.session_state.analysis_results.append({
+                "image": image,
+                "confidence": confidence,
+                "clean_text": clean_text,
+                "original_index": i + 1
+            })
 
-            # ===== DISCLAIMER =====
-            st.markdown("---")
-            st.warning("⚠️ Disclaimer: Consult with a Doctor before making any decisions")
+# Display Persisted Results
+for result in st.session_state.analysis_results:
+    st.markdown("---")
+    st.title(f"Analysis for Image {result['original_index']}")
+    st.image(result['image'], width=300)
+
+    if result['confidence'] is not None:
+        st.progress(result['confidence'] / 100)
+        st.markdown(f"### Confidence Score: **{result['confidence']:.2f}%**")
+
+        if result['confidence'] > 80:
+            st.success("High Confidence Prediction")
+        elif result['confidence'] > 50:
+            st.info("Moderate Confidence Prediction")
+        else:
+            st.error("Low Confidence Prediction")
+    else:
+        st.warning("⚠️ Confidence score not found in AI response")
+
+    st.write(result['clean_text'])
+
+    # ===== PDF DOWNLOAD BUTTON =====
+    pdf_bytes = generate_pdf(result['clean_text'], result['confidence'])
+    st.download_button(
+        label="📥 Download Analysis Report as PDF",
+        data=pdf_bytes,
+        file_name=f"analysis_report_{result['original_index']}.pdf",
+        mime="application/pdf"
+    )
+
+    st.warning("⚠️ Disclaimer: Consult with a Doctor before making any decisions")
