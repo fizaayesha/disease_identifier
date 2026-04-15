@@ -94,63 +94,66 @@ if upload_files:
 submit_button = st.button("Generate Analysis")
 
 # ================= MAIN LOGIC =================
-if submit_button and upload_files:
-    for i, file in enumerate(upload_files):
+if submit_button:
+    if not upload_files:
+        st.error("Please upload at least one image before clicking 'Generate Analysis'.")
+    else:
+        for i, file in enumerate(upload_files):
 
-        # ===== IMAGE PROCESSING + ERROR HANDLING =====
-        try:
-            image_data = file.getvalue()
-            image = Image.open(io.BytesIO(image_data))
-        except Exception:
-            st.error(f"Error processing image {i+1}")
-            continue
-
-        st.image(image, width=300)
-
-        # ===== API CALL =====
-        with st.spinner(f"Analyzing Image {i+1}..."):
+            # ===== IMAGE PROCESSING + ERROR HANDLING =====
             try:
-                response = client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=[system_prompt, image],
-                    generation_config=generation_config
-                )
-            except Exception as e:
-                st.error(f"API Error for Image {i+1}: {str(e)}")
+                image_data = file.getvalue()
+                image = Image.open(io.BytesIO(image_data))
+            except Exception:
+                st.error(f"Error processing image {i+1}")
                 continue
 
-        # ===== RESPONSE VALIDATION =====
-        if not response or not getattr(response, "text", None):
-            st.error(f"Invalid response for Image {i+1}")
-            continue
+            st.image(image, width=300)
 
-        st.title(f"Analysis for Image {i+1}")
+            # ===== API CALL =====
+            with st.spinner(f"Analyzing Image {i+1}..."):
+                try:
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[system_prompt, image],
+                        generation_config=generation_config
+                    )
+                except Exception as e:
+                    st.error(f"API Error for Image {i+1}: {str(e)}")
+                    continue
 
-        # ===== CONFIDENCE EXTRACTION =====
-        confidence = extract_confidence(response.text)
+            # ===== RESPONSE VALIDATION =====
+            if not response or not getattr(response, "text", None):
+                st.error(f"Invalid response for Image {i+1}")
+                continue
 
-        if confidence is not None:
-            st.progress(confidence / 100)
-            st.markdown(f"### Confidence Score: **{confidence:.2f}%**")
+            st.title(f"Analysis for Image {i+1}")
 
-            if confidence > 80:
-                st.success("High Confidence Prediction")
-            elif confidence > 50:
-                st.info("Moderate Confidence Prediction")
+            # ===== CONFIDENCE EXTRACTION =====
+            confidence = extract_confidence(response.text)
+
+            if confidence is not None:
+                st.progress(confidence / 100)
+                st.markdown(f"### Confidence Score: **{confidence:.2f}%**")
+
+                if confidence > 80:
+                    st.success("High Confidence Prediction")
+                elif confidence > 50:
+                    st.info("Moderate Confidence Prediction")
+                else:
+                    st.error("Low Confidence Prediction")
             else:
-                st.error("Low Confidence Prediction")
-        else:
-            st.warning("⚠️ Confidence score not found in AI response")
+                st.warning("⚠️ Confidence score not found in AI response")
 
-        # ===== CLEAN RESPONSE =====
-        clean_text = re.sub(
-            r'Confidence Score:\s*\b(100|[0-9]{1,2})(\.\d+)?\s*%',
-            '',
-            response.text
-        )
+            # ===== CLEAN RESPONSE =====
+            clean_text = re.sub(
+                r'Confidence Score:\s*\b(100|[0-9]{1,2})(\.\d+)?\s*%',
+                '',
+                response.text
+            )
 
-        st.write(clean_text.strip())
+            st.write(clean_text.strip())
 
-        # ===== DISCLAIMER =====
-        st.markdown("---")
-        st.warning("⚠️ Disclaimer: Consult with a Doctor before making any decisions")
+            # ===== DISCLAIMER =====
+            st.markdown("---")
+            st.warning("⚠️ Disclaimer: Consult with a Doctor before making any decisions")
