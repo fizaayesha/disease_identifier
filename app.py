@@ -97,12 +97,12 @@ submit_button = st.button("Generate Analysis")
 if submit_button and upload_files:
     for i, file in enumerate(upload_files):
 
-        # ===== IMAGE VALIDATION =====
+        # ===== IMAGE PROCESSING + ERROR HANDLING =====
         try:
             image_data = file.getvalue()
             image = Image.open(io.BytesIO(image_data))
         except Exception:
-            st.error(f"Invalid image file for Image {i+1}")
+            st.error(f"Error processing image {i+1}")
             continue
 
         st.image(image, width=300)
@@ -113,15 +113,15 @@ if submit_button and upload_files:
                 response = client.models.generate_content(
                     model="gemini-2.0-flash",
                     contents=[system_prompt, image],
-                    config=generation_config
+                    generation_config=generation_config
                 )
             except Exception as e:
-                st.error(f"Error generating response: {e}")
+                st.error(f"API Error for Image {i+1}: {str(e)}")
                 continue
 
         # ===== RESPONSE VALIDATION =====
-        if not response or not hasattr(response, "text") or not response.text:
-            st.error("Invalid response from AI model")
+        if not response or not getattr(response, "text", None):
+            st.error(f"Invalid response for Image {i+1}")
             continue
 
         st.title(f"Analysis for Image {i+1}")
@@ -133,7 +133,6 @@ if submit_button and upload_files:
             st.progress(confidence / 100)
             st.markdown(f"### Confidence Score: **{confidence:.2f}%**")
 
-            # Confidence level indicator
             if confidence > 80:
                 st.success("High Confidence Prediction")
             elif confidence > 50:
@@ -143,7 +142,7 @@ if submit_button and upload_files:
         else:
             st.warning("⚠️ Confidence score not found in AI response")
 
-        # ===== CLEAN RESPONSE (SAFE) =====
+        # ===== CLEAN RESPONSE =====
         clean_text = re.sub(
             r'Confidence Score:\s*\b(100|[0-9]{1,2})(\.\d+)?\s*%',
             '',
