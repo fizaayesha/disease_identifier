@@ -19,11 +19,35 @@ generation_config = {
     "max_output_tokens": 4096,
 }
 
-# ================= SYSTEM PROMPT =================
-system_prompt = """
+# ================= BODY MAP =================
+BODY_PARTS = [
+    {"label": "Head / Brain",  "icon": "🧠", "specialty": "Neurology"},
+    {"label": "Eye",           "icon": "👁️",  "specialty": "Ophthalmology"},
+    {"label": "Ear / Nose / Throat", "icon": "👂", "specialty": "ENT (Otolaryngology)"},
+    {"label": "Chest / Lungs", "icon": "🫁", "specialty": "Pulmonology / Radiology"},
+    {"label": "Heart",         "icon": "❤️",  "specialty": "Cardiology"},
+    {"label": "Abdomen",       "icon": "🫃", "specialty": "Gastroenterology"},
+    {"label": "Skin",          "icon": "🩹", "specialty": "Dermatology"},
+    {"label": "Bones / Joints","icon": "🦴", "specialty": "Orthopedics"},
+    {"label": "Limbs / Muscles","icon": "💪", "specialty": "Orthopedics / Sports Medicine"},
+    {"label": "Urinary / Kidney","icon": "🫘","specialty": "Nephrology / Urology"},
+    {"label": "Reproductive",  "icon": "🔬", "specialty": "Gynecology / Urology"},
+    {"label": "Other / General","icon": "🩺", "specialty": "General Medicine"},
+]
+
+# ================= SYSTEM PROMPT BUILDER =================
+def build_system_prompt(body_part: dict | None) -> str:
+    if body_part:
+        specialty_context = (
+            f"The patient has indicated the affected area is: **{body_part['label']}**. "
+            f"Focus your analysis through the lens of **{body_part['specialty']}**.\n\n"
+        )
+    else:
+        specialty_context = ""
+    return f"""
 As a highly skilled medical practitioner specializing in image analysis, you are tasked with examining medical images.
 
-Your responsibilities include:
+{specialty_context}Your responsibilities include:
 
 1. Detailed Analysis
 2. Findings Report
@@ -72,6 +96,12 @@ st.markdown(f"""
         background-color: {theme_colors['bg']};
         color: {theme_colors['text']};
     }}
+    div[data-testid="stHorizontalBlock"] button {{
+        width: 100%;
+        border-radius: 12px;
+        padding: 0.5rem;
+        font-size: 0.85rem;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -80,28 +110,74 @@ st.image("./logo.jpeg", width=200)
 st.title("Disease Identifier 🧑‍⚕️")
 st.header("Upload medical images to analyze diseases and get AI insights")
 
+# ================= BODY MAP =================
+st.markdown("### 🗺️ Step 1 — Select the affected body area")
+st.caption("Choose the region closest to where your concern is located. This helps focus the AI analysis.")
+
+# Session state for selected body part
+if "selected_body_part" not in st.session_state:
+    st.session_state.selected_body_part = None
+
+COLS_PER_ROW = 4
+rows = [BODY_PARTS[i:i + COLS_PER_ROW] for i in range(0, len(BODY_PARTS), COLS_PER_ROW)]
+
+for row in rows:
+    cols = st.columns(len(row))
+    for col, part in zip(cols, row):
+        is_selected = (
+            st.session_state.selected_body_part is not None
+            and st.session_state.selected_body_part["label"] == part["label"]
+        )
+        label = f"**{part['icon']} {part['label']}**" if is_selected else f"{part['icon']} {part['label']}"
+        if col.button(label, key=f"body_{part['label']}", use_container_width=True):
+            st.session_state.selected_body_part = part
+            st.rerun()
+
+selected = st.session_state.selected_body_part
+if selected:
+    st.success(
+        f"✅ Selected: **{selected['icon']} {selected['label']}** — "
+        f"Analysis will be focused on **{selected['specialty']}**"
+    )
+    if st.button("🔄 Change selection", key="reset_body"):
+        st.session_state.selected_body_part = None
+        st.rerun()
+else:
+    st.info("👆 Please select a body area above to continue.")
+
+# ================= IMAGE UPLOAD (Step 2) =================
+st.markdown("### 📤 Step 2 — Upload your medical image(s)")
+
 upload_files = st.file_uploader(
     "Upload images",
     type=["jpeg", "jpg", "png"],
-    accept_multiple_files=True
+    accept_multiple_files=True,
+    disabled=selected is None,
 )
+
+if selected is None:
+    st.caption("⚠️ Select a body area first to enable image upload.")
 
 # Preview uploaded images
 if upload_files:
     for i, file in enumerate(upload_files):
         st.image(file, width=200, caption=f"Image {i+1}")
 
-# Disable button if no images (UX improvement)
+# Disable button if no images or no body part selected
 submit_button = st.button(
     "Generate Analysis",
-    disabled=not upload_files
+    disabled=(not upload_files or selected is None),
 )
 
 # ================= MAIN LOGIC =================
 if submit_button:
     if not upload_files:
         st.error("⚠️ Please upload at least one image before generating analysis.")
+    elif selected is None:
+        st.error("⚠️ Please select a body area before generating analysis.")
     else:
+        system_prompt = build_system_prompt(selected)
+
         for i, file in enumerate(upload_files):
 
             # ===== IMAGE PROCESSING =====
