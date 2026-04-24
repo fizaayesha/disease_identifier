@@ -24,8 +24,20 @@ generation_config = {
     "max_output_tokens": 4096,
 }
 
+# ================= BODY PART → SPECIALTY MAPPING =================
+BODY_PART_SPECIALTY = {
+    "General (Not Specified)": None,
+    "Eye": "Ophthalmology",
+    "Chest": "Cardiology / Radiology",
+    "Skin": "Dermatology",
+    "Head": "Neurology",
+    "Throat": "ENT (Ear, Nose & Throat)",
+    "Limbs": "Orthopedics",
+    "Abdomen": "Gastroenterology",
+}
+
 # ================= SYSTEM PROMPT =================
-system_prompt = """
+base_system_prompt = """
 As a highly skilled medical practitioner specializing in image analysis, you are tasked with examining medical images.
 
 Your responsibilities include:
@@ -45,6 +57,17 @@ Important Notes:
 - Always include this disclaimer:
 "Consult with a Doctor before making any decisions"
 """
+
+def build_system_prompt(body_part: str) -> str:
+    specialty = BODY_PART_SPECIALTY.get(body_part)
+    if specialty:
+        context = (
+            f"\nBody Part Context: The image relates to the '{body_part}' region of the human body. "
+            f"Apply your expertise in {specialty} when analyzing this image and focus your findings "
+            f"on conditions relevant to {specialty}.\n"
+        )
+        return base_system_prompt + context
+    return base_system_prompt
 
 # ================= CONFIDENCE EXTRACTOR =================
 def extract_confidence(text):
@@ -102,7 +125,7 @@ IMAGES_DIR = os.path.join(HISTORY_DIR, "images")
 if not os.path.exists(IMAGES_DIR):
     os.makedirs(IMAGES_DIR, exist_ok=True)
 
-def save_to_history(image, confidence, clean_text, filename):
+def save_to_history(image, confidence, clean_text, filename, body_part=None):
     history = []
     if os.path.exists(METADATA_FILE):
         try:
@@ -122,7 +145,8 @@ def save_to_history(image, confidence, clean_text, filename):
         "image_name": filename,
         "image_path": image_path,
         "confidence": confidence,
-        "text": clean_text
+        "text": clean_text,
+        "body_part": body_part,
     }
     
     history.insert(0, entry) # Most recent first
@@ -170,6 +194,16 @@ st.markdown(f"""
 st.image("./logo.jpeg", width=200)
 st.title("Disease Identifier 🧑‍⚕️")
 st.header("Upload medical images to analyze diseases and get AI insights")
+
+selected_body_part = st.selectbox(
+    "🩺 Select affected body part (optional)",
+    options=list(BODY_PART_SPECIALTY.keys()),
+    help="Selecting a body part focuses the AI analysis on the relevant medical specialty."
+)
+
+specialty = BODY_PART_SPECIALTY.get(selected_body_part)
+if specialty:
+    st.info(f"🔬 Analysis will be scoped to **{specialty}**")
 
 upload_files = st.file_uploader(
     "Upload images",
@@ -232,6 +266,7 @@ if submit_button:
             # ===== API CALL =====
             with st.spinner(f"Analyzing Image {i+1}..."):
                 try:
+                    system_prompt = build_system_prompt(selected_body_part)
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
                         contents=[system_prompt, image],
@@ -260,9 +295,10 @@ if submit_button:
                 "image": image,
                 "confidence": confidence,
                 "clean_text": clean_text,
-                "original_index": i + 1
+                "original_index": i + 1,
+                "body_part": selected_body_part,
             })
-            save_to_history(image, confidence, clean_text, file.name)
+            save_to_history(image, confidence, clean_text, file.name, body_part=selected_body_part)
 
 # Display Persisted Results
 results_to_show = []
@@ -274,7 +310,8 @@ if st.session_state.view_history:
             "confidence": h['confidence'],
             "clean_text": h['text'],
             "title": f"Historical Report: {h['image_name']}",
-            "timestamp": h['timestamp']
+            "timestamp": h['timestamp'],
+            "body_part": h.get('body_part'),
         }]
     except Exception as e:
         st.error(f"Error loading history: {e}")
@@ -289,6 +326,12 @@ for result in results_to_show:
     if result.get("timestamp"):
         st.caption(f"Analysis from {result['timestamp']}")
     st.title(result['title'])
+
+    body_part = result.get("body_part")
+    if body_part and body_part != "General (Not Specified)":
+        specialty = BODY_PART_SPECIALTY.get(body_part)
+        st.caption(f"🩺 Body Part: **{body_part}** | 🔬 Specialty: **{specialty}**")
+
     st.image(result['image'], width=300)
 
     if result['confidence'] is not None:
