@@ -26,12 +26,12 @@ generation_config = {
 
 # ================= BODY PART → SPECIALTY MAPPING =================
 BODY_PART_SPECIALTY = {
-    "General (Not Specified)": None,
+    "General": None,
     "Eye": "Ophthalmology",
     "Chest": "Cardiology / Radiology",
     "Skin": "Dermatology",
     "Head": "Neurology",
-    "Throat": "ENT (Ear, Nose & Throat)",
+    "Throat": "ENT (Ear, Nose and Throat)",
     "Limbs": "Orthopedics",
     "Abdomen": "Gastroenterology",
 }
@@ -196,9 +196,9 @@ st.title("Disease Identifier 🧑‍⚕️")
 st.header("Upload medical images to analyze diseases and get AI insights")
 
 selected_body_part = st.selectbox(
-    "🩺 Select affected body part (optional)",
+    "🩺 Select affected body part",
     options=list(BODY_PART_SPECIALTY.keys()),
-    help="Selecting a body part focuses the AI analysis on the relevant medical specialty."
+    help="Selecting a body part focuses the AI analysis on the relevant medical specialty. Defaults to General if unspecified."
 )
 
 specialty = BODY_PART_SPECIALTY.get(selected_body_part)
@@ -328,7 +328,7 @@ for result in results_to_show:
     st.title(result['title'])
 
     body_part = result.get("body_part")
-    if body_part and body_part != "General (Not Specified)":
+    if body_part and body_part != "General":
         specialty = BODY_PART_SPECIALTY.get(body_part)
         st.caption(f"🩺 Body Part: **{body_part}** | 🔬 Specialty: **{specialty}**")
 
