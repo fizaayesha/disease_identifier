@@ -17,12 +17,12 @@ if "GOOGLE_API_KEY" not in st.secrets:
 # ================= CONFIGURE GEMINI =================
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# generation_config = {
-#    "temperature": 0.4,
-#    "top_p": 1,
-#   "top_k": 32,
-#    "max_output_tokens": 4096,
-# }
+generation_config = {
+    "temperature": 0.4,
+    "top_p": 1,
+    "top_k": 32,
+    "max_output_tokens": 4096,
+}
 
 
 # ================= SYSTEM PROMPT =================
@@ -181,10 +181,19 @@ upload_files = st.file_uploader(
 # File size validation (5MB limit)
 if upload_files:
     MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB in bytes
+    valid_files = []
+    
     for file in upload_files:
         if file.size > MAX_FILE_SIZE:
-            st.error(f"❌ File '{file.name}' exceeds 5MB limit. Please upload a smaller image.")
-            st.stop()
+            st.warning(f"⚠️ File '{file.name}' exceeds 5MB limit and will be skipped.")
+        else:
+            valid_files.append(file)
+    
+    if not valid_files:
+        st.error("❌ No valid files to process. All files exceed 5MB limit.")
+        st.stop()
+    
+    upload_files = valid_files
 
 # Preview uploaded images
 if upload_files:
@@ -242,7 +251,10 @@ if submit_button:
             with st.spinner(f"Analyzing Image {i+1}..."):
                 try:
                     model = genai.GenerativeModel('models/gemini-2.5-flash')
-                    response = model.generate_content([system_prompt, image])
+                    response = model.generate_content(
+                        [system_prompt, image],
+                        generation_config=generation_config
+                    )
                 except Exception as e:
                     st.error(f"API Error for Image {i+1}: {str(e)}")
                     continue
