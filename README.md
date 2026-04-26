@@ -29,6 +29,8 @@
 ## 🏗️ Architecture
 
 ```
+select the organ
+       ↓
 User uploads image
        ↓
 Streamlit Interface
