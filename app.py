@@ -1,5 +1,5 @@
 import streamlit as st
-from google import genai
+import google.generativeai as genai
 import re
 from PIL import Image
 import io
@@ -14,8 +14,8 @@ if "GOOGLE_API_KEY" not in st.secrets:
     st.error("API Key not found. Please set GOOGLE_API_KEY in Streamlit secrets.")
     st.stop()
 
-# ================= CLIENT =================
-client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
+# ================= CONFIGURE GEMINI =================
+genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 generation_config = {
     "temperature": 0.4,
@@ -23,6 +23,7 @@ generation_config = {
     "top_k": 32,
     "max_output_tokens": 4096,
 }
+
 
 # ================= SYSTEM PROMPT =================
 system_prompt = """
@@ -177,6 +178,23 @@ upload_files = st.file_uploader(
     accept_multiple_files=True
 )
 
+# File size validation (5MB limit)
+if upload_files:
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB in bytes
+    valid_files = []
+    
+    for file in upload_files:
+        if file.size > MAX_FILE_SIZE:
+            st.warning(f"⚠️ File '{file.name}' exceeds 5MB limit and will be skipped.")
+        else:
+            valid_files.append(file)
+    
+    if not valid_files:
+        st.error("❌ No valid files to process. All files exceed 5MB limit.")
+        st.stop()
+    
+    upload_files = valid_files
+
 # Preview uploaded images
 if upload_files:
     for i, file in enumerate(upload_files):
@@ -232,9 +250,9 @@ if submit_button:
             # ===== API CALL =====
             with st.spinner(f"Analyzing Image {i+1}..."):
                 try:
-                    response = client.models.generate_content(
-                        model="gemini-2.0-flash",
-                        contents=[system_prompt, image],
+                    model = genai.GenerativeModel('models/gemini-2.5-flash')
+                    response = model.generate_content(
+                        [system_prompt, image],
                         generation_config=generation_config
                     )
                 except Exception as e:
@@ -310,7 +328,7 @@ for result in results_to_show:
     pdf_bytes = generate_pdf(result['clean_text'], result['confidence'])
     st.download_button(
         label="📥 Download Analysis Report as PDF",
-        data=pdf_bytes,
+        data=bytes(pdf_bytes),
         file_name=f"analysis_report_{result.get('original_index', 'history')}.pdf",
         mime="application/pdf"
     )
