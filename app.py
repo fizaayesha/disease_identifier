@@ -123,7 +123,8 @@ def save_to_history(image, confidence, clean_text, filename):
         "image_name": filename,
         "image_path": image_path,
         "confidence": confidence,
-        "text": clean_text
+        "text": clean_text,
+        "chat_history": []
     }
     
     history.insert(0, entry) # Most recent first
@@ -139,6 +140,21 @@ def load_history():
             return json.load(f)
     except:
         return []
+
+def update_history_chat(entry_id, new_chat_history):
+    if not os.path.exists(METADATA_FILE):
+        return
+    try:
+        with open(METADATA_FILE, "r") as f:
+            history = json.load(f)
+        for entry in history:
+            if entry["id"] == entry_id:
+                entry["chat_history"] = new_chat_history
+                break
+        with open(METADATA_FILE, "w") as f:
+            json.dump(history, f, indent=4)
+    except:
+        pass
 
 # ================= STREAMLIT CONFIG =================
 st.set_page_config(page_title="Disease Identifier", page_icon="🧑‍⚕️")
@@ -274,13 +290,16 @@ if submit_button:
                 response.text
             ).strip()
 
+            entry = save_to_history(image, confidence, clean_text, file.name)
+
             st.session_state.analysis_results.append({
+                "id": entry["id"],
                 "image": image,
                 "confidence": confidence,
                 "clean_text": clean_text,
-                "original_index": i + 1
+                "original_index": i + 1,
+                "chat_history": []
             })
-            save_to_history(image, confidence, clean_text, file.name)
 
 # Display Persisted Results
 results_to_show = []
@@ -288,11 +307,13 @@ if st.session_state.view_history:
     h = st.session_state.view_history
     try:
         results_to_show = [{
+            "id": h.get("id", "historical"),
             "image": Image.open(h['image_path']),
             "confidence": h['confidence'],
             "clean_text": h['text'],
             "title": f"Historical Report: {h['image_name']}",
-            "timestamp": h['timestamp']
+            "timestamp": h['timestamp'],
+            "chat_history": h.get('chat_history', [])
         }]
     except Exception as e:
         st.error(f"Error loading history: {e}")
@@ -334,3 +355,68 @@ for result in results_to_show:
     )
 
     st.warning("⚠️ Disclaimer: Consult with a Doctor before making any decisions")
+
+    # ===== CHAT INTERFACE =====
+    with st.expander("💬 Ask a follow-up question about this scan"):
+        # Display existing chat history
+        for msg in result.get("chat_history", []):
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["text"])
+        
+        # Unique key for text input
+        chat_input_key = f"chat_input_{result['id']}"
+        
+        with st.form(key=f"chat_form_{result['id']}", clear_on_submit=True):
+            cols = st.columns([8, 1])
+            with cols[0]:
+                user_question = st.text_input("Type your question here...", key=chat_input_key, label_visibility="collapsed")
+            with cols[1]:
+                submit_question = st.form_submit_button("Send")
+                
+        if submit_question and user_question:
+            new_user_msg = {"role": "user", "text": user_question}
+            
+            chat_context = f"System Instructions: {system_prompt}\n\n"
+            chat_context += f"Initial Analysis Report:\n{result['clean_text']}\n\n"
+            chat_context += "Previous Conversation:\n"
+            for msg in result.get("chat_history", []):
+                role_name = "User" if msg["role"] == "user" else "Medical AI Assistant"
+                chat_context += f"{role_name}: {msg['text']}\n"
+            
+            chat_context += f"\nUser's New Question: {user_question}\n"
+            chat_context += "Please answer the user's new question contextually based on the original image and analysis. Do not include your own internal thoughts in the output."
+            
+            with st.spinner("AI is thinking..."):
+                try:
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[chat_context, result['image']],
+                        generation_config=generation_config
+                    )
+                    
+                    if response and response.text:
+                        new_ai_msg = {"role": "assistant", "text": response.text}
+                        
+                        # Update the state
+                        if "chat_history" not in result:
+                            result["chat_history"] = []
+                        result["chat_history"].append(new_user_msg)
+                        result["chat_history"].append(new_ai_msg)
+                        
+                        # Persist to history file
+                        update_history_chat(result["id"], result["chat_history"])
+                        
+                        # Update session state if it's the current batch
+                        if not st.session_state.view_history:
+                            for r in st.session_state.analysis_results:
+                                if r.get("id") == result["id"]:
+                                    r["chat_history"] = result["chat_history"]
+                                    break
+                        else:
+                             st.session_state.view_history["chat_history"] = result["chat_history"]
+
+                        st.rerun()
+                    else:
+                        st.error("Failed to generate a response.")
+                except Exception as e:
+                    st.error(f"Error during chat: {str(e)}")
