@@ -1,0 +1,26 @@
+# .github/ISSUE_TEMPLATE/bug.yml
+name: 🐞 Bug Report
+description: Report a bug in the project
+title: "[BUG] "
+labels: ["bug", "NSOC'26", "level1"]
+
+body:
+  - type: dropdown
+    id: level
+    attributes:
+      label: Difficulty Level
+      options:
+        - level1 (easy)
+        - level2 (medium)
+        - level3 (hard)
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      placeholder: Explain the issue clearly
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
