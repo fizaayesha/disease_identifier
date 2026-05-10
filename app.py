@@ -1,21 +1,35 @@
-import streamlit as st
-import google.generativeai as genai
+# Import Streamlit/Gemini lazily so unit tests (which import extract_confidence)
+# can run in environments where those packages are not installed.
+
+try:
+    import streamlit as st
+    import google.generativeai as genai
+except ModuleNotFoundError:  # pragma: no cover
+    st = None
+    genai = None
+
 import re
 from PIL import Image
+
 import io
-from fpdf import FPDF
+try:
+    from fpdf import FPDF
+except ModuleNotFoundError:  # pragma: no cover
+    FPDF = None
 import os
+
 import json
 from datetime import datetime
 import uuid
 
-# ================= API KEY CHECK =================
-if "GOOGLE_API_KEY" not in st.secrets:
-    st.error("API Key not found. Please set GOOGLE_API_KEY in Streamlit secrets.")
-    st.stop()
+# Keep the app runnable in Streamlit, but allow unit tests to import `extract_confidence`
+# in environments where streamlit/gemini are not installed.
+if st is not None and genai is not None:
+    if "GOOGLE_API_KEY" not in st.secrets:
+        st.error("API Key not found. Please set GOOGLE_API_KEY in Streamlit secrets.")
+        st.stop()
 
-# ================= CONFIGURE GEMINI =================
-genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 generation_config = {
     "temperature": 0.4,
@@ -24,9 +38,9 @@ generation_config = {
     "max_output_tokens": 4096,
 }
 
-
-# ================= SYSTEM PROMPT =================
+# System prompt for Gemini
 system_prompt = """
+
 As a highly skilled medical practitioner specializing in image analysis, you are tasked with examining medical images.
 
 Your responsibilities include:
@@ -47,24 +61,91 @@ Important Notes:
 "Consult with a Doctor before making any decisions"
 """
 
-# ================= CONFIDENCE EXTRACTOR =================
-def extract_confidence(text):
-    match = re.search(r'\b(100|[0-9]{1,2})(\.\d+)?\s*%', text)
-    if match:
-        return float(match.group(0).replace('%', ''))
-    return None
+def extract_confidence(text: str):
+    """Extract confidence percentage from model output.
 
-# ================= PDF GENERATOR =================
+    Looks for the first numeric value near the word "confidence".
+    Supports formats like "Confidence: 87%" and "Confidence: 0.87".
+    """
+
+    if not text:
+        return None
+
+    normalized = " ".join(str(text).split())
+
+    patterns = [
+        (
+            r"(?i)\b(?:confidence(?:\s*score)?|probability|likelihood|certainty|confident)\b"
+            r"\s*(?:[:\-–—=]|\bis\b)?\s*"
+            r"(?:\babout\b|\baround\b|\bapproximately\b|\bapprox\.?\b)?\s*"
+            r"~?\s*(\d+(?:\.\d+)?)\s*(%|percent)?",
+            False,
+        ),
+        (
+            r"(?i)(\d+(?:\.\d+)?)\s*(%|percent)?\s*"
+            r"\b(?:confidence(?:\s*score)?|confident|probability|likelihood|certainty)\b",
+            True,
+        ),
+        (
+            r"(?i)\b(?:confidence(?:\s*score)?|probability|likelihood|certainty|confident)\b"
+            r".*?\b(\d+(?:\.\d+)?)\s*/\s*100\b",
+            False,
+        ),
+        (r"(?i)\b(\d{1,3}(?:\.\d+)?)\s*(%|percent)\b", False),
+    ]
+
+    candidate = None
+    has_percent_symbol = False
+
+    for pattern, number_before_keyword in patterns:
+        match = re.search(pattern, normalized)
+        if not match:
+            continue
+
+        candidate = match.group(1)
+        has_percent_symbol = bool(match.group(2))
+
+        if number_before_keyword and not re.search(
+            r"(?i)\b(?:confidence(?:\s*score)?|confident|probability|likelihood|certainty)\b",
+            normalized,
+        ):
+            candidate = None
+            has_percent_symbol = False
+            continue
+
+        break
+
+    if candidate is None:
+        return None
+
+    try:
+        value = float(candidate)
+    except Exception:
+        return None
+
+    # Handle cases where model gives 0-1 instead of 0-100.
+    if 0.0 <= value <= 1.0 and not has_percent_symbol:
+        value *= 100.0
+
+    # Clamp to valid range.
+    if value < 0.0 or value > 100.0:
+        return None
+
+    return value
+
+# PDF generator
+
 def generate_pdf(clean_text, confidence):
+
     pdf = FPDF()
     pdf.add_page()
     
     # Header
     try:
         pdf.image("./logo.jpeg", x=10, y=8, w=33)
-    except:
+    except Exception:
         pass
-        
+ 
     pdf.set_font("helvetica", "B", 24)
     pdf.set_text_color(30, 144, 255) # DodgerBlue
     pdf.cell(0, 20, "Medical Analysis Report", ln=True, align="R")
@@ -95,7 +176,8 @@ def generate_pdf(clean_text, confidence):
     
     return pdf.output()
 
-# ================= HISTORY MANAGEMENT =================
+# History storage
+
 HISTORY_DIR = "history"
 METADATA_FILE = os.path.join(HISTORY_DIR, "metadata.json")
 IMAGES_DIR = os.path.join(HISTORY_DIR, "images")
@@ -109,7 +191,7 @@ def save_to_history(image, confidence, clean_text, filename):
         try:
             with open(METADATA_FILE, "r") as f:
                 history = json.load(f)
-        except:
+        except (OSError, json.JSONDecodeError):
             history = []
     
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -137,49 +219,55 @@ def load_history():
     try:
         with open(METADATA_FILE, "r") as f:
             return json.load(f)
-    except:
+    except (OSError, json.JSONDecodeError):
         return []
 
-# ================= STREAMLIT CONFIG =================
-st.set_page_config(page_title="Disease Identifier", page_icon="🧑‍⚕️")
+# Guard everything below so `import app` works in test environments without streamlit.
+if st is not None:
+    st.set_page_config(page_title="Disease Identifier", page_icon="🧑‍⚕️")
 
-# Theme state
-if 'theme_mode' not in st.session_state:
-    st.session_state.theme_mode = True
+    # Theme state
+    if 'theme_mode' not in st.session_state:
+        st.session_state.theme_mode = True
 
-col1, col2 = st.columns([8, 2])
-with col2:
-    st.toggle("Dark Mode", key="theme_mode")
+    col1, col2 = st.columns([8, 2])
+    with col2:
+        st.toggle("Dark Mode", key="theme_mode")
 
-# Theme colors
-theme_colors = {
-    True: {'bg': '#1E1E1E', 'text': '#FFFFFF'},
-    False: {'bg': '#FFFFFF', 'text': '#000000'}
-}[st.session_state.theme_mode]
+    # Theme colors
+    theme_colors = {
+        True: {'bg': '#1E1E1E', 'text': '#FFFFFF'},
+        False: {'bg': '#FFFFFF', 'text': '#000000'}
+    }[st.session_state.theme_mode]
 
-# Apply CSS
-st.markdown(f"""
-<style>
-    .stApp {{
-        background-color: {theme_colors['bg']};
-        color: {theme_colors['text']};
-    }}
-</style>
-""", unsafe_allow_html=True)
+    # Apply CSS
+    st.markdown(
+        f"""
+        <style>
+            .stApp {{
+                background-color: {theme_colors['bg']};
+                color: {theme_colors['text']};
+            }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-# ================= UI =================
-st.image("./logo.jpeg", width=200)
-st.title("Disease Identifier 🧑‍⚕️")
-st.header("Upload medical images to analyze diseases and get AI insights")
+    st.image("./logo.jpeg", width=200)
+    st.title("Disease Identifier 🧑‍⚕️")
+    st.header("Upload medical images to analyze diseases and get AI insights")
 
-upload_files = st.file_uploader(
-    "Upload images",
-    type=["jpeg", "jpg", "png"],
-    accept_multiple_files=True
-)
+    upload_files = st.file_uploader(
+        "Upload images",
+        type=["jpeg", "jpg", "png"],
+        accept_multiple_files=True,
+    )
+else:
+    upload_files = None
 
 # File size validation (5MB limit)
-if upload_files:
+if st is not None and upload_files:
+
     MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB in bytes
     valid_files = []
     
@@ -196,21 +284,23 @@ if upload_files:
     upload_files = valid_files
 
 # Preview uploaded images
-if upload_files:
-    for i, file in enumerate(upload_files):
-        st.image(file, width=200, caption=f"Image {i+1}")
+if st is not None:
+    if upload_files:
+        for i, file in enumerate(upload_files):
+            st.image(file, width=200, caption=f"Image {i+1}")
 
-submit_button = st.button("Generate Analysis")
+submit_button = st.button("Generate Analysis") if st is not None else False
 
-# ================= MAIN LOGIC =================
-if "analysis_results" not in st.session_state:
-    st.session_state.analysis_results = []
-if "view_history" not in st.session_state:
-    st.session_state.view_history = None
+# Guard session_state usage so `import app` works when streamlit isn't installed.
+if st is not None:
+    if "analysis_results" not in st.session_state:
+        st.session_state.analysis_results = []
+    if "view_history" not in st.session_state:
+        st.session_state.view_history = None
 
-# Sidebar History
-with st.sidebar:
-    st.markdown("---")
+    # Sidebar History
+    with st.sidebar:
+        st.markdown("---")
     st.header("📜 Analysis History")
     history = load_history()
     if not history:
@@ -239,7 +329,6 @@ if submit_button:
     else:
         st.session_state.analysis_results = [] # Reset for new batch
         for i, file in enumerate(upload_files):
-            # ===== IMAGE PROCESSING + ERROR HANDLING =====
             try:
                 image_data = file.getvalue()
                 image = Image.open(io.BytesIO(image_data))
@@ -247,7 +336,6 @@ if submit_button:
                 st.error(f"Error processing image {i+1}")
                 continue
 
-            # ===== API CALL =====
             with st.spinner(f"Analyzing Image {i+1}..."):
                 try:
                     model = genai.GenerativeModel('models/gemini-2.5-flash')
@@ -258,20 +346,34 @@ if submit_button:
                 except Exception as e:
                     st.error(f"API Error for Image {i+1}: {str(e)}")
                     continue
-
-            # ===== RESPONSE VALIDATION =====
+ 
             if not response or not getattr(response, "text", None):
                 st.error(f"Invalid response for Image {i+1}")
                 continue
 
-            # ===== CONFIDENCE EXTRACTION =====
             confidence = extract_confidence(response.text)
+    
+            # Remove confidence line in a tolerant way so the report body is clean.
+            confidence_line_regex = (
+                r"(?mi)^\s*"
+                r"confidence\s*(?:score)?\b\s*"
+                r"(?:\(|\[)?\s*"
+                r"(?:[:\-–—=]|\bis\b)?\s*"
+                r"~?\s*"
+                r"[0-9]+(?:\.[0-9]+)?\s*%?\s*"
+                r"(?:percent)?\b?\s*"
+                r"(?:\)|\])?"
+            )
 
-            # ===== CLEAN RESPONSE =====
+            clean_text = re.sub(confidence_line_regex, "", response.text).strip()
+
+            # As an extra fallback, remove inline occurrences like "Confidence: 87%".
             clean_text = re.sub(
-                r'Confidence Score:\s*\b(100|[0-9]{1,2})(\.\d+)?\s*%',
-                '',
-                response.text
+                r"(?i)\bconfidence(?:\s*score)?\b\s*(?:\(|\[)?\s*(?:[:\-–—=]|\bis\b)?\s*~?\s*"
+                r"[0-9]+(?:\.[0-9]+)?\s*%?\s*"
+                r"(?:percent)?\b?\s*(?:\)|\])?",
+                "",
+                clean_text,
             ).strip()
 
             st.session_state.analysis_results.append({
@@ -284,7 +386,7 @@ if submit_button:
 
 # Display Persisted Results
 results_to_show = []
-if st.session_state.view_history:
+if st is not None and st.session_state.view_history:
     h = st.session_state.view_history
     try:
         results_to_show = [{
@@ -297,10 +399,12 @@ if st.session_state.view_history:
     except Exception as e:
         st.error(f"Error loading history: {e}")
 else:
-    results_to_show = [
-        {**r, "title": f"Analysis for Image {r['original_index']}", "timestamp": None} 
-        for r in st.session_state.analysis_results
-    ]
+    results_to_show = []
+    if st is not None:
+        results_to_show = [
+            {**r, "title": f"Analysis for Image {r['original_index']}", "timestamp": None} 
+            for r in st.session_state.analysis_results
+        ]
 
 for result in results_to_show:
     st.markdown("---")
@@ -324,7 +428,6 @@ for result in results_to_show:
 
     st.write(result['clean_text'])
 
-    # ===== PDF DOWNLOAD BUTTON =====
     pdf_bytes = generate_pdf(result['clean_text'], result['confidence'])
     st.download_button(
         label="📥 Download Analysis Report as PDF",
