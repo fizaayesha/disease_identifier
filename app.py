@@ -168,9 +168,10 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ================= UI =================
-st.image("./logo.jpeg", width=200)
-st.title("Disease Identifier 🧑‍⚕️")
-st.header("Upload medical images to analyze diseases and get AI insights")
+st.image("./logo.jpeg", width=150)
+st.title("🧑‍⚕️ Disease Identifier")
+st.markdown("### AI-Powered Medical Image Analysis")
+st.caption("Upload medical images (X-rays, skin scans, etc.) to get instant AI-driven diagnostic insights.")
 
 upload_files = st.file_uploader(
     "Upload images",
@@ -195,10 +196,13 @@ if upload_files:
     
     upload_files = valid_files
 
-# Preview uploaded images
+# Preview uploaded images in a grid
 if upload_files:
+    st.subheader("🖼️ Selected Images")
+    cols = st.columns(4)
     for i, file in enumerate(upload_files):
-        st.image(file, width=200, caption=f"Image {i+1}")
+        with cols[i % 4]:
+            st.image(file, use_container_width=True, caption=f"Image {i+1}")
 
 submit_button = st.button("Generate Analysis")
 
@@ -248,13 +252,17 @@ if submit_button:
                 continue
 
             # ===== API CALL =====
-            with st.spinner(f"Analyzing Image {i+1}..."):
+            with st.status(f"🔍 Analyzing Image {i+1}...", expanded=True) as status:
+                st.write("📤 Uploading to Gemini...")
                 try:
-                    model = genai.GenerativeModel('models/gemini-2.5-flash')
+                    # Temporary fix for model name until functional branch
+                    model = genai.GenerativeModel('models/gemini-1.5-flash') 
+                    st.write("🧠 Processing image patterns...")
                     response = model.generate_content(
                         [system_prompt, image],
                         generation_config=generation_config
                     )
+                    status.update(label=f"✅ Analysis for Image {i+1} Complete!", state="complete", expanded=False)
                 except Exception as e:
                     st.error(f"API Error for Image {i+1}: {str(e)}")
                     continue
