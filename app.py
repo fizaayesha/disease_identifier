@@ -61,7 +61,8 @@ def generate_pdf(clean_text, confidence):
     
     # Header
     try:
-        pdf.image("./logo.jpeg", x=10, y=8, w=33)
+        if os.path.exists("./logo.jpeg"):
+            pdf.image("./logo.jpeg", x=10, y=8, w=33)
     except:
         pass
         
@@ -83,9 +84,9 @@ def generate_pdf(clean_text, confidence):
     
     pdf.set_font("helvetica", "", 12)
     pdf.set_text_color(50, 50, 50)
-    # Basic cleaning for standard PDF fonts
-    safe_text = clean_text.encode('latin-1', 'ignore').decode('latin-1')
-    pdf.multi_cell(0, 8, safe_text)
+    
+    # fpdf2 handles UTF-8 better, but let's ensure compatibility
+    pdf.multi_cell(0, 8, clean_text)
     
     # Footer
     pdf.ln(20)
@@ -216,11 +217,38 @@ with st.sidebar:
     if not history:
         st.info("No past analyses found.")
     else:
-        if st.button("Clear History"):
+        if st.button("Clear History", use_container_width=True):
             if os.path.exists(METADATA_FILE):
                 os.remove(METADATA_FILE)
-            # Optionally delete images too, but for safety let's just clear metadata
+            # Delete all stored images
+            if os.path.exists(IMAGES_DIR):
+                for f in os.listdir(IMAGES_DIR):
+                    os.remove(os.path.join(IMAGES_DIR, f))
             st.rerun()
+            
+        # Export History as CSV
+        if history:
+            import csv
+            from io import StringIO
+            
+            output = StringIO()
+            writer = csv.DictWriter(output, fieldnames=["timestamp", "image_name", "confidence", "text"])
+            writer.writeheader()
+            for item in history:
+                writer.writerow({
+                    "timestamp": item["timestamp"],
+                    "image_name": item["image_name"],
+                    "confidence": item["confidence"],
+                    "text": item["text"].replace("\n", " ")
+                })
+            
+            st.download_button(
+                label="📊 Export History to CSV",
+                data=output.getvalue(),
+                file_name="analysis_history.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
             
         for item in history:
             # Display history items as buttons
@@ -250,7 +278,7 @@ if submit_button:
             # ===== API CALL =====
             with st.spinner(f"Analyzing Image {i+1}..."):
                 try:
-                    model = genai.GenerativeModel('models/gemini-2.5-flash')
+                    model = genai.GenerativeModel('models/gemini-1.5-flash')
                     response = model.generate_content(
                         [system_prompt, image],
                         generation_config=generation_config
