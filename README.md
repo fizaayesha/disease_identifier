@@ -1,5 +1,7 @@
 # 🧑‍⚕️ Disease Identifier
 
+
+
 > An AI-powered web application that helps users understand possible health issues from medical images using the Google Gemini API.
 
 > [!WARNING]
@@ -74,6 +76,7 @@ The project is structured into dedicated modules for better maintainability and 
 ## 🤝 Contributing
 
 Contributions are welcome! Please follow our [CONTRIBUTING.md](CONTRIBUTING.md) guide.
+[Please start picking issues from here on which you can work, tag me and I will assign the issue and add labels accordingly. | https://github.com/fizaayesha/disease_identifier/issues/48]
 
 ---
 
