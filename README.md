@@ -7,130 +7,75 @@
 
 ---
 
-## 🌐 Live Demo
+## 🏗️ Modular Architecture
 
-👉 [disease-identifier.streamlit.app](https://disease-identifier.streamlit.app/)
+The project is structured into dedicated modules for better maintainability and scalability:
+
+- **`app.py`**: Main entry point and Streamlit UI logic.
+- **`ai_engine.py`**: Handles Google Gemini API configurations, prompts, and image analysis.
+- **`pdf_utils.py`**: Logic for generating high-quality medical reports in PDF format.
+- **`history_manager.py`**: Manages local storage of analysis results and image files.
 
 ---
 
 ## ✨ Features
 
-- 📤 Upload medical images (JPG or PNG)
-- 🤖 AI-based disease analysis powered by Google Gemini
-- 📋 Generates a structured report including:
-  - Detailed Analysis
-  - Findings Report
-  - Recommendations
-  - Treatment Suggestions
-- ⚡ Fast and interactive UI built with Streamlit
-
----
-
-## 🏗️ Architecture
-
-```
-User uploads image
-       ↓
-Streamlit Interface
-       ↓
-Gemini API processes image
-       ↓
-AI generates response
-       ↓
-Structured output shown to user
-```
-
----
-
-## 🛠️ Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Frontend / UI | Streamlit |
-| Backend | Python |
-| AI Model | Google Gemini API |
-| Deployment | Streamlit Cloud |
+- **📤 Multi-Image Upload**: Batch process medical images (JPG, PNG).
+- **🖼️ Grid View**: Modern UI for previewing multiple uploaded files.
+- **🧠 Advanced AI Analysis**: Powered by Google Gemini (1.5-Flash) for pattern recognition.
+- **📋 Structured Reports**: Detailed findings, recommendations, and confidence scores.
+- **📥 PDF Export**: Download professional medical reports for each analysis.
+- **📊 CSV Export**: Export your entire analysis history for record-keeping.
+- **📜 Persistent History**: Keep track of past analyses with local image storage.
+- **⚡ Interactive UI**: Fast, responsive design with dark mode support.
 
 ---
 
 ## 🚀 Setup Instructions
 
 ### Prerequisites
-
-- Python 3.x installed
-- Streamlit installed
+- Python 3.9+
+- [Google Gemini API Key](https://aistudio.google.com/app/apikey)
 
 ### Steps
 
-**1. Clone the repository**
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/fizaayesha/disease_identifier.git
+   cd disease_identifier
+   ```
 
-```bash
-git clone https://github.com/fizaayesha/disease_identifier.git
-cd disease_identifier
-```
+2. **Create and activate a virtual environment**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # Linux/Mac
+   # OR
+   venv\Scripts\activate      # Windows
+   ```
 
-**2. Create and activate a virtual environment**
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-```bash
-python -m venv venv
-```
+4. **Add your API key**
+   Create a `.streamlit/secrets.toml` file:
+   ```toml
+   GOOGLE_API_KEY = "YOUR_GEMINI_API_KEY"
+   ```
 
-- On Linux / Mac:
-  ```bash
-  source venv/bin/activate
-  ```
-- On Windows:
-  ```bash
-  venv\Scripts\activate
-  ```
-
-**3. Install dependencies**
-
-```bash
-pip install -r requirements.txt
-```
-
-**4. Add your API key**
-
-Create a `.streamlit/secrets.toml` file and add:
-
-```toml
-GOOGLE_API_KEY = "your-google-api-key"
-```
-
-**5. Run the application**
-
-```bash
-streamlit run app.py
-```
+5. **Run the application**
+   ```bash
+   streamlit run app.py
+   ```
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! 🚀
-
-1. Fork the repository
-2. Create a new branch: `git checkout -b feature/your-feature-name`
-3. Make your changes
-4. Commit and push: `git commit -m "Add your message"` → `git push origin feature/your-feature-name`
-5. Open a Pull Request
-
-For detailed guidelines, check the [CONTRIBUTING.md](CONTRIBUTING.md) file.
-
-### 🟢 Good First Issues
-
-New to open source? Start with beginner-friendly tasks:
-
-- 🎨 Improving UI/UX
-- ⏳ Adding loading indicators
-- ✅ Adding input validation
-- 🛡️ Improving error handling
-
-Find these tasks under issues labeled [`good-first-issue`](../../issues?q=label%3Agood-first-issue).
+Contributions are welcome! Please follow our [CONTRIBUTING.md](CONTRIBUTING.md) guide.
 
 ---
 
 ## 📄 License
-
 This project is open source. See the [LICENSE](LICENSE) file for details.
