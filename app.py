@@ -13,6 +13,155 @@ if not configure_ai():
     st.error("API Key not found. Please set GOOGLE_API_KEY in Streamlit secrets.")
     st.stop()
 
+# ================= CONFIGURE GEMINI =================
+genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+
+generation_config = {
+    "temperature": 0.4,
+    "top_p": 1,
+    "top_k": 32,
+    "max_output_tokens": 4096,
+}
+
+# ================= BODY PART → SPECIALTY MAPPING =================
+BODY_PART_SPECIALTY = {
+    "General": None,
+    "Eye": "Ophthalmology",
+    "Chest": "Cardiology / Radiology",
+    "Skin": "Dermatology",
+    "Head": "Neurology",
+    "Throat": "ENT (Ear, Nose and Throat)",
+    "Limbs": "Orthopedics",
+    "Abdomen": "Gastroenterology",
+}
+
+# ================= SYSTEM PROMPT =================
+base_system_prompt = """
+As a highly skilled medical practitioner specializing in image analysis, you are tasked with examining medical images.
+
+Your responsibilities include:
+
+1. Detailed Analysis
+2. Findings Report
+3. Recommendations and Next Steps
+4. Treatment Suggestions
+
+5. Confidence Score:
+Always include a confidence score explicitly in this format:
+"Confidence Score: XX%"
+
+Important Notes:
+- Only respond if image is related to human health
+- If unclear, say "Unable to determine"
+- Always include this disclaimer:
+"Consult with a Doctor before making any decisions"
+"""
+
+def build_system_prompt(body_part: str) -> str:
+    specialty = BODY_PART_SPECIALTY.get(body_part)
+    if specialty:
+        context = (
+            f"\nBody Part Context: The image relates to the '{body_part}' region of the human body. "
+            f"Apply your expertise in {specialty} when analyzing this image and focus your findings "
+            f"on conditions relevant to {specialty}.\n"
+        )
+        return base_system_prompt + context
+    return base_system_prompt
+
+# ================= CONFIDENCE EXTRACTOR =================
+def extract_confidence(text):
+    match = re.search(r'\b(100|[0-9]{1,2})(\.\d+)?\s*%', text)
+    if match:
+        return float(match.group(0).replace('%', ''))
+    return None
+
+# ================= PDF GENERATOR =================
+def generate_pdf(clean_text, confidence):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Header
+    try:
+        pdf.image("./logo.jpeg", x=10, y=8, w=33)
+    except:
+        pass
+        
+    pdf.set_font("helvetica", "B", 24)
+    pdf.set_text_color(30, 144, 255) # DodgerBlue
+    pdf.cell(0, 20, "Medical Analysis Report", ln=True, align="R")
+    
+    pdf.ln(10)
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(10)
+    
+    # Content
+    if confidence is not None:
+        pdf.set_font("helvetica", "B", 14)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(0, 10, f"Confidence Score: {confidence:.2f}%", ln=True)
+        pdf.ln(5)
+    
+    pdf.set_font("helvetica", "", 12)
+    pdf.set_text_color(50, 50, 50)
+    # Basic cleaning for standard PDF fonts
+    safe_text = clean_text.encode('latin-1', 'ignore').decode('latin-1')
+    pdf.multi_cell(0, 8, safe_text)
+    
+    # Footer
+    pdf.ln(20)
+    pdf.set_font("helvetica", "I", 10)
+    pdf.set_text_color(128, 128, 128)
+    pdf.multi_cell(0, 10, "Disclaimer: This report is AI-generated and intended for informational purposes only. Consult with a qualified healthcare professional before making any medical decisions.", align="C")
+    
+    return pdf.output()
+
+# ================= HISTORY MANAGEMENT =================
+HISTORY_DIR = "history"
+METADATA_FILE = os.path.join(HISTORY_DIR, "metadata.json")
+IMAGES_DIR = os.path.join(HISTORY_DIR, "images")
+
+if not os.path.exists(IMAGES_DIR):
+    os.makedirs(IMAGES_DIR, exist_ok=True)
+
+def save_to_history(image, confidence, clean_text, filename, body_part=None):
+    history = []
+    if os.path.exists(METADATA_FILE):
+        try:
+            with open(METADATA_FILE, "r") as f:
+                history = json.load(f)
+        except:
+            history = []
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    image_id = str(uuid.uuid4())
+    image_path = os.path.join(IMAGES_DIR, f"{image_id}.png")
+    image.save(image_path)
+    
+    entry = {
+        "id": image_id,
+        "timestamp": timestamp,
+        "image_name": filename,
+        "image_path": image_path,
+        "confidence": confidence,
+        "text": clean_text,
+        "body_part": body_part,
+    }
+    
+    history.insert(0, entry) # Most recent first
+    with open(METADATA_FILE, "w") as f:
+        json.dump(history, f, indent=4)
+    return entry
+
+def load_history():
+    if not os.path.exists(METADATA_FILE):
+        return []
+    try:
+        with open(METADATA_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return []
+
 # ================= STREAMLIT CONFIG =================
 st.set_page_config(page_title="Disease Identifier", page_icon="🧑‍⚕️", layout="wide")
 
@@ -33,7 +182,58 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# ================= SIDEBAR =================
+# ================= UI =================
+st.image("./logo.jpeg", width=200)
+st.title("Disease Identifier 🧑‍⚕️")
+st.header("Upload medical images to analyze diseases and get AI insights")
+
+selected_body_part = st.selectbox(
+    "🩺 Select affected body part",
+    options=list(BODY_PART_SPECIALTY.keys()),
+    help="Selecting a body part focuses the AI analysis on the relevant medical specialty. Defaults to General if unspecified."
+)
+
+specialty = BODY_PART_SPECIALTY.get(selected_body_part)
+if specialty:
+    st.info(f"🔬 Analysis will be scoped to **{specialty}**")
+
+upload_files = st.file_uploader(
+    "Upload images",
+    type=["jpeg", "jpg", "png"],
+    accept_multiple_files=True
+)
+
+# File size validation (5MB limit)
+if upload_files:
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB in bytes
+    valid_files = []
+    
+    for file in upload_files:
+        if file.size > MAX_FILE_SIZE:
+            st.warning(f"⚠️ File '{file.name}' exceeds 5MB limit and will be skipped.")
+        else:
+            valid_files.append(file)
+    
+    if not valid_files:
+        st.error("❌ No valid files to process. All files exceed 5MB limit.")
+        st.stop()
+    
+    upload_files = valid_files
+
+# Preview uploaded images
+if upload_files:
+    for i, file in enumerate(upload_files):
+        st.image(file, width=200, caption=f"Image {i+1}")
+
+submit_button = st.button("Generate Analysis")
+
+# ================= MAIN LOGIC =================
+if "analysis_results" not in st.session_state:
+    st.session_state.analysis_results = []
+if "view_history" not in st.session_state:
+    st.session_state.view_history = None
+
+# Sidebar History
 with st.sidebar:
     st.image("./logo.jpeg", width=100)
     st.title("Settings & History")
@@ -106,47 +306,45 @@ if upload_files:
             
             for i, file in enumerate(valid_files):
                 try:
-                    image = Image.open(io.BytesIO(file.getvalue()))
-                    with st.status(f"🔍 Analyzing Image {i+1}...", expanded=False) as status:
-                        response = analyze_image(image)
-                        if response and response.text:
-                            conf = extract_confidence(response.text)
-                            clean_text = re.sub(r'Confidence Score:\s*\b(100|[0-9]{1,2})(\.\d+)?\s*%', '', response.text).strip()
-                            
-                            res_entry = {
-                                "image": image,
-                                "confidence": conf,
-                                "clean_text": clean_text,
-                                "original_index": i + 1,
-                                "image_name": file.name
-                            }
-                            st.session_state.analysis_results.append(res_entry)
-                            save_to_history(image, conf, clean_text, file.name)
-                            status.update(label=f"✅ Image {i+1} Analyzed", state="complete")
-                        else:
-                            st.error(f"Could not analyze image {i+1}")
+                    system_prompt = build_system_prompt(selected_body_part)
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[system_prompt, image],
+                        generation_config=generation_config
+                    )
                 except Exception as e:
                     st.error(f"Error processing image {i+1}: {e}")
 
-# ================= DISPLAY RESULTS =================
-if "analysis_results" not in st.session_state:
-    st.session_state.analysis_results = []
-if "view_history" not in st.session_state:
-    st.session_state.view_history = None
+            # ===== CLEAN RESPONSE =====
+            clean_text = re.sub(
+                r'Confidence Score:\s*\b(100|[0-9]{1,2})(\.\d+)?\s*%',
+                '',
+                response.text
+            ).strip()
+
+            st.session_state.analysis_results.append({
+                "image": image,
+                "confidence": confidence,
+                "clean_text": clean_text,
+                "original_index": i + 1,
+                "body_part": selected_body_part,
+            })
+            save_to_history(image, confidence, clean_text, file.name, body_part=selected_body_part)
 
 results_to_show = []
 if st.session_state.view_history:
     h = st.session_state.view_history
-    results_to_show = [{
-        "image": Image.open(h['image_path']),
-        "confidence": h['confidence'],
-        "clean_text": h['text'],
-        "title": f"Historical Report: {h['image_name']}",
-        "timestamp": h['timestamp']
-    }]
-    if st.button("⬅️ Back to Current Results"):
-        st.session_state.view_history = None
-        st.rerun()
+    try:
+        results_to_show = [{
+            "image": Image.open(h['image_path']),
+            "confidence": h['confidence'],
+            "clean_text": h['text'],
+            "title": f"Historical Report: {h['image_name']}",
+            "timestamp": h['timestamp'],
+            "body_part": h.get('body_part'),
+        }]
+    except Exception as e:
+        st.error(f"Error loading history: {e}")
 else:
     results_to_show = [
         {**r, "title": f"Analysis for {r['image_name']}", "timestamp": None} 
@@ -156,17 +354,24 @@ else:
 for result in results_to_show:
     st.divider()
     if result.get("timestamp"):
-        st.caption(f"📅 Analysis from {result['timestamp']}")
-    
-    res_col1, res_col2 = st.columns([1, 2])
-    with res_col1:
-        st.image(result['image'], use_container_width=True)
-    
-    with res_col2:
-        st.header(result['title'])
-        if result['confidence'] is not None:
-            st.progress(result['confidence'] / 100)
-            st.markdown(f"### Confidence Score: **{result['confidence']:.2f}%**")
+        st.caption(f"Analysis from {result['timestamp']}")
+    st.title(result['title'])
+
+    body_part = result.get("body_part")
+    if body_part and body_part != "General":
+        specialty = BODY_PART_SPECIALTY.get(body_part)
+        st.caption(f"🩺 Body Part: **{body_part}** | 🔬 Specialty: **{specialty}**")
+
+    st.image(result['image'], width=300)
+
+    if result['confidence'] is not None:
+        st.progress(result['confidence'] / 100)
+        st.markdown(f"### Confidence Score: **{result['confidence']:.2f}%**")
+
+        if result['confidence'] > 80:
+            st.success("High Confidence Prediction")
+        elif result['confidence'] > 50:
+            st.info("Moderate Confidence Prediction")
         else:
             st.warning("⚠️ Confidence score not provided by AI")
         

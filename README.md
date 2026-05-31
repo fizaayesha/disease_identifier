@@ -20,7 +20,25 @@ The project is structured into dedicated modules for better maintainability and 
 
 ---
 
-## ✨ Features
+## 🏗️ Architecture
+
+```
+select the organ
+       ↓
+User uploads image
+       ↓
+Streamlit Interface
+       ↓
+Gemini API processes image
+       ↓
+AI generates response
+       ↓
+Structured output shown to user
+```
+
+---
+
+## 🛠️ Tech Stack
 
 - **📤 Multi-Image Upload**: Batch process medical images (JPG, PNG).
 - **🖼️ Grid View**: Modern UI for previewing multiple uploaded files.
