@@ -1,16 +1,15 @@
 import streamlit as st
-import google.generativeai as genai
-import re
-from PIL import Image
 import io
-from fpdf import FPDF
-import os
-import json
-from datetime import datetime
-import uuid
+import re
+import csv
+from PIL import Image
+from io import StringIO
+from ai_engine import configure_ai, analyze_image, extract_confidence
+from pdf_utils import generate_pdf
+from history_manager import load_history, save_to_history, clear_all_history
 
-# ================= API KEY CHECK =================
-if "GOOGLE_API_KEY" not in st.secrets:
+# ================= API INITIALIZATION =================
+if not configure_ai():
     st.error("API Key not found. Please set GOOGLE_API_KEY in Streamlit secrets.")
     st.stop()
 
@@ -164,29 +163,22 @@ def load_history():
         return []
 
 # ================= STREAMLIT CONFIG =================
-st.set_page_config(page_title="Disease Identifier", page_icon="🧑‍⚕️")
+st.set_page_config(page_title="Disease Identifier", page_icon="🧑‍⚕️", layout="wide")
 
 # Theme state
 if 'theme_mode' not in st.session_state:
     st.session_state.theme_mode = True
 
-col1, col2 = st.columns([8, 2])
-with col2:
-    st.toggle("Dark Mode", key="theme_mode")
-
-# Theme colors
+# Theme styling
 theme_colors = {
     True: {'bg': '#1E1E1E', 'text': '#FFFFFF'},
     False: {'bg': '#FFFFFF', 'text': '#000000'}
 }[st.session_state.theme_mode]
 
-# Apply CSS
 st.markdown(f"""
 <style>
-    .stApp {{
-        background-color: {theme_colors['bg']};
-        color: {theme_colors['text']};
-    }}
+    .stApp {{ background-color: {theme_colors['bg']}; color: {theme_colors['text']}; }}
+    .main-header {{ text-align: center; padding: 20px; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -243,45 +235,76 @@ if "view_history" not in st.session_state:
 
 # Sidebar History
 with st.sidebar:
-    st.markdown("---")
+    st.image("./logo.jpeg", width=100)
+    st.title("Settings & History")
+    st.toggle("Dark Mode", key="theme_mode")
+    
+    st.divider()
     st.header("📜 Analysis History")
     history = load_history()
-    if not history:
-        st.info("No past analyses found.")
-    else:
-        if st.button("Clear History"):
-            if os.path.exists(METADATA_FILE):
-                os.remove(METADATA_FILE)
-            # Optionally delete images too, but for safety let's just clear metadata
+    
+    if history:
+        if st.button("🗑️ Clear All History", use_container_width=True):
+            clear_all_history()
             st.rerun()
             
+        # CSV Export
+        output = StringIO()
+        writer = csv.DictWriter(output, fieldnames=["timestamp", "image_name", "confidence", "text"])
+        writer.writeheader()
         for item in history:
-            # Display history items as buttons
+            writer.writerow({
+                "timestamp": item["timestamp"],
+                "image_name": item["image_name"],
+                "confidence": item["confidence"],
+                "text": item["text"].replace("\n", " ")
+            })
+        
+        st.download_button(
+            label="📊 Export History (CSV)",
+            data=output.getvalue(),
+            file_name="analysis_history.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+        
+        st.divider()
+        for item in history:
             if st.button(f"{item['timestamp']}\n{item['image_name']}", key=item['id'], use_container_width=True):
                 st.session_state.view_history = item
 
-        if st.session_state.view_history:
-            if st.button("⬅️ Back to Current", use_container_width=True):
-                st.session_state.view_history = None
-                st.rerun()
+# ================= MAIN UI =================
+st.markdown("<div class='main-header'>", unsafe_allow_html=True)
+st.title("🧑‍⚕️ Disease Identifier")
+st.markdown("### AI-Powered Medical Image Analysis")
+st.caption("Upload medical images (X-rays, skin scans, etc.) for instant AI insights.")
+st.markdown("</div>", unsafe_allow_html=True)
 
-if submit_button:
-    st.session_state.view_history = None # Clear history view when new analysis is triggered
-    if not upload_files:
-        st.error("Please upload at least one image before clicking 'Generate Analysis'.")
-    else:
-        st.session_state.analysis_results = [] # Reset for new batch
-        for i, file in enumerate(upload_files):
-            # ===== IMAGE PROCESSING + ERROR HANDLING =====
-            try:
-                image_data = file.getvalue()
-                image = Image.open(io.BytesIO(image_data))
-            except Exception:
-                st.error(f"Error processing image {i+1}")
-                continue
+upload_files = st.file_uploader(
+    "Upload images (Max 5MB each)",
+    type=["jpeg", "jpg", "png"],
+    accept_multiple_files=True
+)
 
-            # ===== API CALL =====
-            with st.spinner(f"Analyzing Image {i+1}..."):
+if upload_files:
+    MAX_FILE_SIZE = 5 * 1024 * 1024
+    valid_files = [f for f in upload_files if f.size <= MAX_FILE_SIZE]
+    
+    if len(valid_files) < len(upload_files):
+        st.warning(f"⚠️ {len(upload_files) - len(valid_files)} files exceeded the 5MB limit and were skipped.")
+    
+    if valid_files:
+        st.subheader("🖼️ Selected Images")
+        cols = st.columns(4)
+        for i, file in enumerate(valid_files):
+            with cols[i % 4]:
+                st.image(file, use_container_width=True, caption=f"Image {i+1}")
+        
+        if st.button("🚀 Generate Analysis", type="primary", use_container_width=True):
+            st.session_state.view_history = None
+            st.session_state.analysis_results = []
+            
+            for i, file in enumerate(valid_files):
                 try:
                     system_prompt = build_system_prompt(selected_body_part)
                     response = client.models.generate_content(
@@ -290,16 +313,7 @@ if submit_button:
                         generation_config=generation_config
                     )
                 except Exception as e:
-                    st.error(f"API Error for Image {i+1}: {str(e)}")
-                    continue
-
-            # ===== RESPONSE VALIDATION =====
-            if not response or not getattr(response, "text", None):
-                st.error(f"Invalid response for Image {i+1}")
-                continue
-
-            # ===== CONFIDENCE EXTRACTION =====
-            confidence = extract_confidence(response.text)
+                    st.error(f"Error processing image {i+1}: {e}")
 
             # ===== CLEAN RESPONSE =====
             clean_text = re.sub(
@@ -317,7 +331,6 @@ if submit_button:
             })
             save_to_history(image, confidence, clean_text, file.name, body_part=selected_body_part)
 
-# Display Persisted Results
 results_to_show = []
 if st.session_state.view_history:
     h = st.session_state.view_history
@@ -334,12 +347,12 @@ if st.session_state.view_history:
         st.error(f"Error loading history: {e}")
 else:
     results_to_show = [
-        {**r, "title": f"Analysis for Image {r['original_index']}", "timestamp": None} 
+        {**r, "title": f"Analysis for {r['image_name']}", "timestamp": None} 
         for r in st.session_state.analysis_results
     ]
 
 for result in results_to_show:
-    st.markdown("---")
+    st.divider()
     if result.get("timestamp"):
         st.caption(f"Analysis from {result['timestamp']}")
     st.title(result['title'])
@@ -360,19 +373,15 @@ for result in results_to_show:
         elif result['confidence'] > 50:
             st.info("Moderate Confidence Prediction")
         else:
-            st.error("Low Confidence Prediction")
-    else:
-        st.warning("⚠️ Confidence score not found in AI response")
-
-    st.write(result['clean_text'])
-
-    # ===== PDF DOWNLOAD BUTTON =====
-    pdf_bytes = generate_pdf(result['clean_text'], result['confidence'])
-    st.download_button(
-        label="📥 Download Analysis Report as PDF",
-        data=bytes(pdf_bytes),
-        file_name=f"analysis_report_{result.get('original_index', 'history')}.pdf",
-        mime="application/pdf"
-    )
-
-    st.warning("⚠️ Disclaimer: Consult with a Doctor before making any decisions")
+            st.warning("⚠️ Confidence score not provided by AI")
+        
+        st.write(result['clean_text'])
+        
+        pdf_bytes = generate_pdf(result['clean_text'], result['confidence'])
+        st.download_button(
+            label="📥 Download Report (PDF)",
+            data=bytes(pdf_bytes),
+            file_name=f"analysis_{result.get('image_name', 'report')}.pdf",
+            mime="application/pdf"
+        )
+        st.info("⚠️ Disclaimer: Consult with a Doctor before making any decisions")

@@ -1,0 +1,25 @@
+# .github/ISSUE_TEMPLATE/feature.yml
+name: ✨ Feature Request
+description: Suggest a new feature
+title: "[FEATURE] "
+labels: ["feature", "NSOC'26", "level2"]
+
+body:
+  - type: dropdown
+    id: level
+    attributes:
+      label: Difficulty Level
+      options:
+        - level1 (easy)
+        - level2 (medium)
+        - level3 (hard)
+
+  - type: textarea
+    id: feature
+    attributes:
+      label: Describe the feature
+
+  - type: textarea
+    id: benefit
+    attributes:
+      label: Why is this useful?

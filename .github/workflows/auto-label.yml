@@ -1,0 +1,89 @@
+const title = context.payload.issue.title.toLowerCase();
+const bodyRaw = context.payload.issue.body || "";
+const body = bodyRaw.toLowerCase();
+const text = title + " " + body;
+
+let labels = ["NSOC'26"];
+
+// Helper
+const containsAny = (text, keywords) =>
+  keywords.some(k => text.includes(k));
+
+/**
+ * TYPE DETECTION
+ */
+
+// BUG
+if (
+  containsAny(text, [
+    "bug", "error", "issue", "fix", "crash", "fail", "broken", "not working"
+  ])
+) {
+  labels.push("bug");
+}
+
+// FEATURE
+if (
+  containsAny(text, [
+    "feature request",
+    "enhancement",
+    "new feature",
+    "suggestion",
+    "improvement"
+  ])
+) {
+  labels.push("feature");
+}
+
+// DOCUMENTATION
+if (
+  containsAny(text, [
+    "doc", "docs", "readme", "documentation", "guide"
+  ])
+) {
+  labels.push("documentation");
+}
+
+
+/**
+ * LEVEL DETECTION (Template > Fallback)
+ */
+
+let levelFromTemplate = null;
+
+// Extract from structured template
+const levelMatch = bodyRaw.match(/level\s*(1|2|3)/i);
+
+if (levelMatch) {
+  levelFromTemplate = `level${levelMatch[1]}`;
+}
+
+if (levelFromTemplate) {
+  labels.push(levelFromTemplate);
+} else {
+  if (containsAny(body, ["easy", "beginner"])) {
+    labels.push("level1");
+  } else if (containsAny(body, ["medium", "intermediate"])) {
+    labels.push("level2");
+  } else if (containsAny(body, ["hard", "advanced"])) {
+    labels.push("level3");
+  }
+}
+
+
+/**
+ * ✅ DEDUPLICATION STEP
+ */
+
+labels = [...new Set(labels)];
+
+
+/**
+ * APPLY LABELS
+ */
+
+github.rest.issues.addLabels({
+  ...context.repo,
+  issue_number: context.issue.number,
+  labels
+});
