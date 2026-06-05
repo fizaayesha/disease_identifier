@@ -6,6 +6,7 @@ from datetime import datetime
 HISTORY_DIR = "history"
 METADATA_FILE = os.path.join(HISTORY_DIR, "metadata.json")
 IMAGES_DIR = os.path.join(HISTORY_DIR, "images")
+MAX_HISTORY_SIZE = 50
 
 def ensure_history_dirs():
     if not os.path.exists(IMAGES_DIR):
@@ -20,12 +21,12 @@ def save_to_history(image, confidence, clean_text, filename):
                 history = json.load(f)
         except:
             history = []
-    
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     image_id = str(uuid.uuid4())
     image_path = os.path.join(IMAGES_DIR, f"{image_id}.png")
     image.save(image_path)
-    
+
     entry = {
         "id": image_id,
         "timestamp": timestamp,
@@ -34,8 +35,20 @@ def save_to_history(image, confidence, clean_text, filename):
         "confidence": confidence,
         "text": clean_text
     }
-    
-    history.insert(0, entry) # Most recent first
+
+    history.insert(0, entry)
+
+    if len(history) > MAX_HISTORY_SIZE:
+        evicted_entries = history[MAX_HISTORY_SIZE:]
+        history = history[:MAX_HISTORY_SIZE]
+        for evicted in evicted_entries:
+            image_file = evicted.get("image_path")
+            if image_file and os.path.exists(image_file):
+                try:
+                    os.remove(image_file)
+                except:
+                    pass
+
     with open(METADATA_FILE, "w") as f:
         json.dump(history, f, indent=4)
     return entry
