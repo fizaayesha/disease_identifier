@@ -103,8 +103,18 @@ if upload_files:
         if st.button("🚀 Generate Analysis", type="primary", use_container_width=True):
             st.session_state.view_history = None
             st.session_state.analysis_results = []
-            
+
+            # ---- ADDED: progress bar ----
+            total = len(valid_files)
+            progress_bar = st.progress(0, text="Starting analysis...")
+            # -----------------------------
+
             for i, file in enumerate(valid_files):
+
+                # ---- ADDED: update progress per image ----
+                progress_bar.progress(i / total, text=f"Analyzing image {i+1} of {total}...")
+                # ------------------------------------------
+
                 try:
                     image = Image.open(io.BytesIO(file.getvalue()))
                     with st.status(f"🔍 Analyzing Image {i+1}...", expanded=False) as status:
@@ -127,6 +137,10 @@ if upload_files:
                             st.error(f"Could not analyze image {i+1}")
                 except Exception as e:
                     st.error(f"Error processing image {i+1}: {e}")
+
+            # ---- ADDED: complete progress bar ----
+            progress_bar.progress(1.0, text="✅ All images analyzed!")
+            # --------------------------------------
 
 # ================= DISPLAY RESULTS =================
 if "analysis_results" not in st.session_state:
