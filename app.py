@@ -190,57 +190,20 @@ if upload_files:
         else:
             valid_files.append(file)
     
-    if valid_files:
-        st.subheader("🖼️ Selected Images")
-        cols = st.columns(4)
-        for i, file in enumerate(valid_files):
-            with cols[i % 4]:
-                st.image(file, use_container_width=True, caption=f"Image {i+1}")
-        
-        if st.button("🚀 Generate Analysis", type="primary", use_container_width=True):
-            st.session_state.view_history = None
-            st.session_state.analysis_results = []
+    if not valid_files:
+        st.error("❌ No valid files to process. All files exceed 5MB limit.")
+        st.stop()
+    
+    upload_files = valid_files
 
 # Preview uploaded images
 if upload_files:
     for i, file in enumerate(upload_files):
         st.image(file, width=200, caption=f"Image {i+1}")
 
-            for i, file in enumerate(valid_files):
+submit_button = st.button("Generate Analysis")
 
-                # ---- ADDED: update progress per image ----
-                progress_bar.progress(i / total, text=f"Analyzing image {i+1} of {total}...")
-                # ------------------------------------------
-
-                try:
-                    image = Image.open(io.BytesIO(file.getvalue()))
-                    with st.status(f"🔍 Analyzing Image {i+1}...", expanded=False) as status:
-                        response = analyze_image(image)
-                        if response and response.text:
-                            conf = extract_confidence(response.text)
-                            clean_text = re.sub(r'Confidence Score:\s*\b(100|[0-9]{1,2})(\.\d+)?\s*%', '', response.text).strip()
-                            
-                            res_entry = {
-                                "image": image,
-                                "confidence": conf,
-                                "clean_text": clean_text,
-                                "original_index": i + 1,
-                                "image_name": file.name
-                            }
-                            st.session_state.analysis_results.append(res_entry)
-                            save_to_history(image, conf, clean_text, file.name)
-                            status.update(label=f"✅ Image {i+1} Analyzed", state="complete")
-                        else:
-                            st.error(f"Could not analyze image {i+1}")
-                except Exception as e:
-                    st.error(f"Error processing image {i+1}: {e}")
-
-            # ---- ADDED: complete progress bar ----
-            progress_bar.progress(1.0, text="✅ All images analyzed!")
-            # --------------------------------------
-
-# ================= DISPLAY RESULTS =================
-
+# ================= MAIN LOGIC =================
 if "analysis_results" not in st.session_state:
     st.session_state.analysis_results = []
 if "view_history" not in st.session_state:
@@ -383,23 +346,19 @@ for result in results_to_show:
         elif result['confidence'] > 50:
             st.info("Moderate Confidence Prediction")
         else:
-            st.warning("⚠️ Confidence score not provided by AI")
-        
-        st.write(result['clean_text'])
-        
-        pdf_bytes = generate_pdf(result['clean_text'], result['confidence'])
-        st.download_button(
-            label="📥 Download Report (PDF)",
-            data=bytes(pdf_bytes),
-            file_name=f"analysis_{result.get('image_name', 'report')}.pdf",
-            mime="application/pdf"
-        )
-        st.info("⚠️ Disclaimer: Consult with a Doctor before making any decisions")
-
-        st.error("Low Confidence Prediction")
+            st.error("Low Confidence Prediction")
     else:
         st.warning("⚠️ Confidence score not found in AI response")
 
     st.write(result['clean_text'])
 
+    # ===== PDF DOWNLOAD BUTTON =====
+    pdf_bytes = generate_pdf(result['clean_text'], result['confidence'])
+    st.download_button(
+        label="📥 Download Analysis Report as PDF",
+        data=bytes(pdf_bytes),
+        file_name=f"analysis_report_{result.get('original_index', 'history')}.pdf",
+        mime="application/pdf"
+    )
 
+    st.warning("⚠️ Disclaimer: Consult with a Doctor before making any decisions")
