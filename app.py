@@ -17,6 +17,19 @@ if "GOOGLE_API_KEY" not in st.secrets:
 # ================= CONFIGURE GEMINI =================
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
+# ================= QUOTA MANAGEMENT =================
+from quota_manager import QuotaManager
+
+quota_manager = QuotaManager(
+    max_requests_per_hour=10,
+    max_requests_per_day=50,
+    global_max_daily=1000,
+    quota_file="quota_data.json"
+)
+
+if "user_id" not in st.session_state:
+    st.session_state.user_id = str(uuid.uuid4())
+
 generation_config = {
     "temperature": 0.4,
     "top_p": 1,
@@ -251,17 +264,32 @@ if submit_button:
                 st.error(f"Error processing image {i+1}")
                 continue
 
+            # ===== QUOTA CHECK =====
+            can_request, reason, wait_seconds = quota_manager.can_make_request(st.session_state.user_id)
+            if not can_request:
+                st.error(f"Rate limit exceeded: {reason}")
+                quota_status = quota_manager.get_user_quota_status(st.session_state.user_id)
+                st.info(
+                    f"**Quota Status:**\n"
+                    f"- Hourly: {quota_status['hourly_used']}/{quota_status['hourly_limit']} "
+                    f"(resets in {quota_status['hourly_reset_in_minutes']:.0f}m)\n"
+                    f"- Daily: {quota_status['daily_used']}/{quota_status['daily_limit']} "
+                    f"(resets in {quota_status['daily_reset_in_hours']:.1f}h)"
+                )
+                continue
+
             # ===== API CALL =====
             with st.status(f"🔍 Analyzing Image {i+1}...", expanded=True) as status:
                 st.write("📤 Uploading to Gemini...")
                 try:
                     # Temporary fix for model name until functional branch
-                    model = genai.GenerativeModel('models/gemini-1.5-flash') 
+                    model = genai.GenerativeModel('models/gemini-1.5-flash')
                     st.write("🧠 Processing image patterns...")
                     response = model.generate_content(
                         [system_prompt, image],
                         generation_config=generation_config
                     )
+                    quota_manager.record_request(st.session_state.user_id)
                     status.update(label=f"✅ Analysis for Image {i+1} Complete!", state="complete", expanded=False)
                 except Exception as e:
                     st.error(f"API Error for Image {i+1}: {str(e)}")
