@@ -1,110 +1,319 @@
 import streamlit as st
-import io
+import google.generativeai as genai
 import re
 import csv
+import io
 from PIL import Image, UnidentifiedImageError
 from io import StringIO
-from ai_engine import configure_ai, analyze_image, extract_confidence
-from pdf_utils import generate_pdf
-from history_manager import load_history, save_to_history, clear_all_history
+from fpdf import FPDF
+import os
+import json
+from datetime import datetime
+import uuid
+import hashlib
 
-# ================= API INITIALIZATION =================
-if not configure_ai():
+# ================= API KEY CHECK =================
+if "GOOGLE_API_KEY" not in st.secrets:
     st.error("API Key not found. Please set GOOGLE_API_KEY in Streamlit secrets.")
     st.stop()
 
+# ================= CONFIGURE GEMINI =================
+genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+
+generation_config = {
+    "temperature": 0.4,
+    "top_p": 1,
+    "top_k": 32,
+    "max_output_tokens": 4096,
+}
+
+# ================= SYSTEM PROMPT =================
+system_prompt = """
+As a highly skilled medical practitioner specializing in image analysis, you are tasked with examining medical images.
+
+Your responsibilities include:
+
+1. Detailed Analysis
+2. Findings Report
+3. Recommendations and Next Steps
+4. Treatment Suggestions
+
+5. Confidence Score:
+Always include a confidence score explicitly in this format:
+"Confidence Score: XX%"
+
+Important Notes:
+- Only respond if image is related to human health
+- If unclear, say "Unable to determine"
+- Always include this disclaimer:
+"Consult with a Doctor before making any decisions"
+"""
+
+# ================= USER AUTH =================
+USERS_FILE = "users.json"
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def load_users() -> dict:
+    if not os.path.exists(USERS_FILE):
+        return {}
+    try:
+        with open(USERS_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_users(users: dict):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=4)
+
+def register_user(username: str, password: str) -> tuple[bool, str]:
+    users = load_users()
+    if username.strip() == "":
+        return False, "Username cannot be empty."
+    if username in users:
+        return False, "Username already exists."
+    if len(password) < 6:
+        return False, "Password must be at least 6 characters."
+    users[username] = hash_password(password)
+    save_users(users)
+    return True, "Account created successfully!"
+
+def verify_user(username: str, password: str) -> bool:
+    users = load_users()
+    return users.get(username) == hash_password(password)
+
+# ================= AUTH GATE =================
+if "authenticated_user" not in st.session_state:
+    st.session_state.authenticated_user = None
+
+def show_auth_page():
+    st.set_page_config(page_title="Disease Identifier – Login", page_icon="🧑‍⚕️")
+    st.title("🧑‍⚕️ Disease Identifier")
+    st.markdown("### Please log in to continue")
+
+    tab_login, tab_register = st.tabs(["Login", "Register"])
+
+    with tab_login:
+        username = st.text_input("Username", key="login_user")
+        password = st.text_input("Password", type="password", key="login_pass")
+        if st.button("Login", use_container_width=True):
+            if verify_user(username, password):
+                st.session_state.authenticated_user = username
+                st.rerun()
+            else:
+                st.error("Invalid username or password.")
+
+    with tab_register:
+        new_user = st.text_input("Choose a username", key="reg_user")
+        new_pass = st.text_input("Choose a password (min 6 chars)", type="password", key="reg_pass")
+        if st.button("Create Account", use_container_width=True):
+            ok, msg = register_user(new_user, new_pass)
+            if ok:
+                st.success(msg + " Please log in.")
+            else:
+                st.error(msg)
+
+if st.session_state.authenticated_user is None:
+    show_auth_page()
+    st.stop()
+
+# ---- From here on the user is authenticated ----
+current_user = st.session_state.authenticated_user
+
+# ================= CONFIDENCE EXTRACTOR =================
+def extract_confidence(text):
+    match = re.search(r'\b(100|[0-9]{1,2})(\.\d+)?\s*%', text)
+    if match:
+        return float(match.group(0).replace('%', ''))
+    return None
+
+# ================= PDF GENERATOR =================
+def generate_pdf(clean_text, confidence):
+    pdf = FPDF()
+    pdf.add_page()
+
+    try:
+        pdf.image("./logo.jpeg", x=10, y=8, w=33)
+    except Exception:
+        pass
+
+    pdf.set_font("helvetica", "B", 24)
+    pdf.set_text_color(30, 144, 255)
+    pdf.cell(0, 20, "Medical Analysis Report", ln=True, align="R")
+
+    pdf.ln(10)
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(10)
+
+    if confidence is not None:
+        pdf.set_font("helvetica", "B", 14)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(0, 10, f"Confidence Score: {confidence:.2f}%", ln=True)
+        pdf.ln(5)
+
+    pdf.set_font("helvetica", "", 12)
+    pdf.set_text_color(50, 50, 50)
+    safe_text = clean_text.encode('latin-1', 'ignore').decode('latin-1')
+    pdf.multi_cell(0, 8, safe_text)
+
+    pdf.ln(20)
+    pdf.set_font("helvetica", "I", 10)
+    pdf.set_text_color(128, 128, 128)
+    pdf.multi_cell(
+        0, 10,
+        "Disclaimer: This report is AI-generated and intended for informational "
+        "purposes only. Consult with a qualified healthcare professional before "
+        "making any medical decisions.",
+        align="C"
+    )
+
+    return pdf.output()
+
+# ================= PER-USER HISTORY MANAGEMENT =================
+BASE_HISTORY_DIR = "history"
+
+def _user_paths(username: str) -> tuple[str, str, str]:
+    history_dir = os.path.join(BASE_HISTORY_DIR, username)
+    metadata_file = os.path.join(history_dir, "metadata.json")
+    images_dir = os.path.join(history_dir, "images")
+    return history_dir, metadata_file, images_dir
+
+def _ensure_user_dirs(username: str):
+    _, _, images_dir = _user_paths(username)
+    os.makedirs(images_dir, exist_ok=True)
+
+_ensure_user_dirs(current_user)
+
+def save_to_history(image, confidence, clean_text, filename):
+    _, metadata_file, images_dir = _user_paths(current_user)
+    history = []
+    if os.path.exists(metadata_file):
+        try:
+            with open(metadata_file, "r") as f:
+                history = json.load(f)
+        except Exception:
+            history = []
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    image_id = str(uuid.uuid4())
+    image_path = os.path.join(images_dir, f"{image_id}.png")
+    image.save(image_path)
+
+    entry = {
+        "id": image_id,
+        "timestamp": timestamp,
+        "image_name": filename,
+        "image_path": image_path,
+        "confidence": confidence,
+        "text": clean_text,
+    }
+
+    history.insert(0, entry)
+    with open(metadata_file, "w") as f:
+        json.dump(history, f, indent=4)
+    return entry
+
+def load_history():
+    _, metadata_file, _ = _user_paths(current_user)
+    if not os.path.exists(metadata_file):
+        return []
+    try:
+        with open(metadata_file, "r") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def clear_history():
+    _, metadata_file, _ = _user_paths(current_user)
+    if os.path.exists(metadata_file):
+        os.remove(metadata_file)
+
+# ================= GEMINI ANALYSIS =================
+def analyze_image(image: Image.Image):
+    model = genai.GenerativeModel(
+        model_name="models/gemini-1.5-flash",
+        generation_config=generation_config,
+    )
+    return model.generate_content([system_prompt, image])
+
 # ================= STREAMLIT CONFIG =================
-st.set_page_config(page_title="Disease Identifier", page_icon="🧑‍⚕️", layout="wide")
+st.set_page_config(page_title="Disease Identifier", page_icon="🧑‍⚕️")
 
 # Theme state
 if 'theme_mode' not in st.session_state:
     st.session_state.theme_mode = True
 
-# Theme styling
+col1, col2, col3 = st.columns([7, 2, 1])
+with col2:
+    st.toggle("Dark Mode", key="theme_mode")
+with col3:
+    if st.button("Logout"):
+        st.session_state.authenticated_user = None
+        st.session_state.analysis_results = []
+        st.session_state.view_history = None
+        st.rerun()
+
 theme_colors = {
-    True: {'bg': '#1E1E1E', 'text': '#FFFFFF'},
-    False: {'bg': '#FFFFFF', 'text': '#000000'}
+    True:  {'bg': '#1E1E1E', 'text': '#FFFFFF'},
+    False: {'bg': '#FFFFFF',  'text': '#000000'},
 }[st.session_state.theme_mode]
 
 st.markdown(f"""
 <style>
-    .stApp {{ background-color: {theme_colors['bg']}; color: {theme_colors['text']}; }}
-    .main-header {{ text-align: center; padding: 20px; }}
+    .stApp {{
+        background-color: {theme_colors['bg']};
+        color: {theme_colors['text']};
+    }}
 </style>
 """, unsafe_allow_html=True)
 
-# ================= SIDEBAR =================
-with st.sidebar:
-    st.image("./logo.jpeg", width=100)
-    st.title("Settings & History")
-    st.toggle("Dark Mode", key="theme_mode")
-    
-    st.divider()
-    st.header("📜 Analysis History")
-    history = load_history()
-    
-    if history:
-        if st.button("🗑️ Clear All History", use_container_width=True):
-            clear_all_history()
-            st.rerun()
-            
-        # CSV Export
-        output = StringIO()
-        writer = csv.DictWriter(output, fieldnames=["timestamp", "image_name", "confidence", "text"])
-        writer.writeheader()
-        for item in history:
-            writer.writerow({
-                "timestamp": item["timestamp"],
-                "image_name": item["image_name"],
-                "confidence": item["confidence"],
-                "text": item["text"].replace("\n", " ")
-            })
-        
-        st.download_button(
-            label="📊 Export History (CSV)",
-            data=output.getvalue(),
-            file_name="analysis_history.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-        
-        st.divider()
-        for item in history:
-            if st.button(f"{item['timestamp']}\n{item['image_name']}", key=item['id'], use_container_width=True):
-                st.session_state.view_history = item
+# ================= UI =================
+try:
+    st.image("./logo.jpeg", width=150)
+except Exception:
+    pass
 
-# ================= MAIN UI =================
-st.markdown("<div class='main-header'>", unsafe_allow_html=True)
 st.title("🧑‍⚕️ Disease Identifier")
 st.markdown("### AI-Powered Medical Image Analysis")
-st.caption("Upload medical images (X-rays, skin scans, etc.) for instant AI insights.")
-st.markdown("</div>", unsafe_allow_html=True)
+st.caption(f"Logged in as **{current_user}** · Upload medical images (X-rays, skin scans, etc.) to get instant AI-driven diagnostic insights.")
 
 upload_files = st.file_uploader(
-    "Upload images (Max 5MB each)",
+    "Upload images",
     type=["jpeg", "jpg", "png"],
-    accept_multiple_files=True
+    accept_multiple_files=True,
 )
 
+# File size validation (5 MB limit)
 if upload_files:
     MAX_FILE_SIZE = 5 * 1024 * 1024
-    valid_files = [f for f in upload_files if f.size <= MAX_FILE_SIZE]
-    
-    if len(valid_files) < len(upload_files):
-        st.warning(f"⚠️ {len(upload_files) - len(valid_files)} files exceeded the 5MB limit and were skipped.")
-    
+    valid_files = []
+
+    for file in upload_files:
+        if file.size > MAX_FILE_SIZE:
+            st.warning(f"⚠️ File '{file.name}' exceeds 5 MB and will be skipped.")
+        else:
+            valid_files.append(file)
+
     if valid_files:
         st.subheader("🖼️ Selected Images")
         cols = st.columns(4)
         for i, file in enumerate(valid_files):
             with cols[i % 4]:
                 st.image(file, use_container_width=True, caption=f"Image {i+1}")
-        
+
         if st.button("🚀 Generate Analysis", type="primary", use_container_width=True):
             st.session_state.view_history = None
             st.session_state.analysis_results = []
-            
+
+            total = len(valid_files)
+            progress_bar = st.progress(0, text="Starting analysis...")
+
             for i, file in enumerate(valid_files):
+                progress_bar.progress(i / total, text=f"Analyzing image {i+1} of {total}...")
+
                 # ===== FIX FOR ISSUE #50: Proper exception handling for Image.open() =====
                 # Image.open() is lazy — it doesn't fully decode the image until it's used.
                 # Calling image.verify() forces full decoding immediately so corrupt or
@@ -128,14 +337,18 @@ if upload_files:
                         response = analyze_image(image)
                         if response and response.text:
                             conf = extract_confidence(response.text)
-                            clean_text = re.sub(r'Confidence Score:\s*\b(100|[0-9]{1,2})(\.\d+)?\s*%', '', response.text).strip()
-                            
+                            clean_text = re.sub(
+                                r'Confidence Score:\s*\b(100|[0-9]{1,2})(\.\d+)?\s*%',
+                                '',
+                                response.text,
+                            ).strip()
+
                             res_entry = {
                                 "image": image,
                                 "confidence": conf,
                                 "clean_text": clean_text,
                                 "original_index": i + 1,
-                                "image_name": file.name
+                                "image_name": file.name,
                             }
                             st.session_state.analysis_results.append(res_entry)
                             save_to_history(image, conf, clean_text, file.name)
@@ -145,12 +358,41 @@ if upload_files:
                     except Exception as e:
                         st.error(f"Error analyzing image {i+1}: {e}")
 
-# ================= DISPLAY RESULTS =================
+            progress_bar.progress(1.0, text="✅ All images analyzed!")
+
+# ================= SESSION STATE DEFAULTS =================
 if "analysis_results" not in st.session_state:
     st.session_state.analysis_results = []
 if "view_history" not in st.session_state:
     st.session_state.view_history = None
 
+# ================= SIDEBAR HISTORY (per-user) =================
+with st.sidebar:
+    st.markdown("---")
+    st.header(f"📜 History — {current_user}")
+    history = load_history()
+
+    if not history:
+        st.info("No past analyses found.")
+    else:
+        if st.button("Clear History"):
+            clear_history()
+            st.rerun()
+
+        for item in history:
+            if st.button(
+                f"{item['timestamp']}\n{item['image_name']}",
+                key=item['id'],
+                use_container_width=True,
+            ):
+                st.session_state.view_history = item
+
+        if st.session_state.view_history:
+            if st.button("⬅️ Back to Current", use_container_width=True):
+                st.session_state.view_history = None
+                st.rerun()
+
+# ================= DISPLAY RESULTS =================
 results_to_show = []
 if st.session_state.view_history:
     h = st.session_state.view_history
@@ -160,7 +402,8 @@ if st.session_state.view_history:
             "confidence": h['confidence'],
             "clean_text": h['text'],
             "title": f"Historical Report: {h['image_name']}",
-            "timestamp": h['timestamp']
+            "timestamp": h['timestamp'],
+            "image_name": h['image_name'],
         }]
     except Exception:
         st.error("Could not load historical image. The file may have been moved or deleted.")
@@ -169,34 +412,37 @@ if st.session_state.view_history:
         st.rerun()
 else:
     results_to_show = [
-        {**r, "title": f"Analysis for {r['image_name']}", "timestamp": None} 
+        {**r, "title": f"Analysis for Image {r['original_index']}", "timestamp": None}
         for r in st.session_state.analysis_results
     ]
 
 for result in results_to_show:
-    st.divider()
+    st.markdown("---")
     if result.get("timestamp"):
-        st.caption(f"📅 Analysis from {result['timestamp']}")
-    
-    res_col1, res_col2 = st.columns([1, 2])
-    with res_col1:
-        st.image(result['image'], use_container_width=True)
-    
-    with res_col2:
-        st.header(result['title'])
-        if result['confidence'] is not None:
-            st.progress(result['confidence'] / 100)
-            st.markdown(f"### Confidence Score: **{result['confidence']:.2f}%**")
+        st.caption(f"Analysis from {result['timestamp']}")
+    st.title(result['title'])
+    st.image(result['image'], width=300)
+
+    if result['confidence'] is not None:
+        st.progress(result['confidence'] / 100)
+        st.markdown(f"### Confidence Score: **{result['confidence']:.2f}%**")
+
+        if result['confidence'] > 80:
+            st.success("High Confidence Prediction")
+        elif result['confidence'] > 50:
+            st.info("Moderate Confidence Prediction")
         else:
-            st.warning("⚠️ Confidence score not provided by AI")
-        
-        st.write(result['clean_text'])
-        
-        pdf_bytes = generate_pdf(result['clean_text'], result['confidence'])
-        st.download_button(
-            label="📥 Download Report (PDF)",
-            data=bytes(pdf_bytes),
-            file_name=f"analysis_{result.get('image_name', 'report')}.pdf",
-            mime="application/pdf"
-        )
-        st.info("⚠️ Disclaimer: Consult with a Doctor before making any decisions")
+            st.warning("⚠️ Low Confidence Prediction")
+    else:
+        st.warning("⚠️ Confidence score not found in AI response")
+
+    st.write(result['clean_text'])
+
+    pdf_bytes = generate_pdf(result['clean_text'], result['confidence'])
+    st.download_button(
+        label="📥 Download Report (PDF)",
+        data=bytes(pdf_bytes),
+        file_name=f"analysis_{result.get('image_name', 'report')}.pdf",
+        mime="application/pdf",
+    )
+    st.info("⚠️ Disclaimer: Consult with a Doctor before making any decisions")
