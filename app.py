@@ -2,7 +2,7 @@ import streamlit as st
 import io
 import re
 import csv
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from io import StringIO
 from ai_engine import configure_ai, analyze_image, extract_confidence
 from pdf_utils import generate_pdf
@@ -105,9 +105,26 @@ if upload_files:
             st.session_state.analysis_results = []
             
             for i, file in enumerate(valid_files):
+                # ===== FIX FOR ISSUE #50: Proper exception handling for Image.open() =====
+                # Image.open() is lazy — it doesn't fully decode the image until it's used.
+                # Calling image.verify() forces full decoding immediately so corrupt or
+                # malformed images are caught here instead of crashing the app later.
                 try:
-                    image = Image.open(io.BytesIO(file.getvalue()))
-                    with st.status(f"🔍 Analyzing Image {i+1}...", expanded=False) as status:
+                    image_data = file.getvalue()
+                    # verify() detects corruption but closes the file after, so we
+                    # must re-open a fresh copy for actual use
+                    Image.open(io.BytesIO(image_data)).verify()
+                    image = Image.open(io.BytesIO(image_data))
+                except UnidentifiedImageError:
+                    st.error(f"❌ Image {i+1} ('{file.name}') is not a valid image file and was skipped.")
+                    continue
+                except Exception:
+                    st.error(f"❌ Image {i+1} ('{file.name}') is corrupted or malformed and was skipped.")
+                    continue
+                # ===== END FIX =====
+
+                with st.status(f"🔍 Analyzing Image {i+1}...", expanded=False) as status:
+                    try:
                         response = analyze_image(image)
                         if response and response.text:
                             conf = extract_confidence(response.text)
@@ -125,8 +142,8 @@ if upload_files:
                             status.update(label=f"✅ Image {i+1} Analyzed", state="complete")
                         else:
                             st.error(f"Could not analyze image {i+1}")
-                except Exception as e:
-                    st.error(f"Error processing image {i+1}: {e}")
+                    except Exception as e:
+                        st.error(f"Error analyzing image {i+1}: {e}")
 
 # ================= DISPLAY RESULTS =================
 if "analysis_results" not in st.session_state:
@@ -137,13 +154,16 @@ if "view_history" not in st.session_state:
 results_to_show = []
 if st.session_state.view_history:
     h = st.session_state.view_history
-    results_to_show = [{
-        "image": Image.open(h['image_path']),
-        "confidence": h['confidence'],
-        "clean_text": h['text'],
-        "title": f"Historical Report: {h['image_name']}",
-        "timestamp": h['timestamp']
-    }]
+    try:
+        results_to_show = [{
+            "image": Image.open(h['image_path']),
+            "confidence": h['confidence'],
+            "clean_text": h['text'],
+            "title": f"Historical Report: {h['image_name']}",
+            "timestamp": h['timestamp']
+        }]
+    except Exception:
+        st.error("Could not load historical image. The file may have been moved or deleted.")
     if st.button("⬅️ Back to Current Results"):
         st.session_state.view_history = None
         st.rerun()
