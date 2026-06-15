@@ -176,6 +176,7 @@ def generate_pdf(clean_text, confidence):
 BASE_HISTORY_DIR = "history"
 
 def _user_paths(username: str) -> tuple[str, str, str]:
+    """Return (history_dir, metadata_file, images_dir) for a given user."""
     history_dir = os.path.join(BASE_HISTORY_DIR, username)
     metadata_file = os.path.join(history_dir, "metadata.json")
     images_dir = os.path.join(history_dir, "images")
