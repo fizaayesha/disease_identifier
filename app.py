@@ -1,8 +1,10 @@
 import streamlit as st
 import google.generativeai as genai
 import re
-from PIL import Image
+import csv
 import io
+from PIL import Image, UnidentifiedImageError
+from io import StringIO
 from fpdf import FPDF
 import os
 import json
@@ -276,7 +278,7 @@ except Exception:
     pass
 
 st.title("🧑‍⚕️ Disease Identifier")
-st.markdown(f"### AI-Powered Medical Image Analysis")
+st.markdown("### AI-Powered Medical Image Analysis")
 st.caption(f"Logged in as **{current_user}** · Upload medical images (X-rays, skin scans, etc.) to get instant AI-driven diagnostic insights.")
 
 upload_files = st.file_uploader(
@@ -312,9 +314,27 @@ if upload_files:
 
             for i, file in enumerate(valid_files):
                 progress_bar.progress(i / total, text=f"Analyzing image {i+1} of {total}...")
+
+                # ===== FIX FOR ISSUE #50: Proper exception handling for Image.open() =====
+                # Image.open() is lazy — it doesn't fully decode the image until it's used.
+                # Calling image.verify() forces full decoding immediately so corrupt or
+                # malformed images are caught here instead of crashing the app later.
                 try:
-                    image = Image.open(io.BytesIO(file.getvalue()))
-                    with st.status(f"🔍 Analyzing Image {i+1}...", expanded=False) as status:
+                    image_data = file.getvalue()
+                    # verify() detects corruption but closes the file after, so we
+                    # must re-open a fresh copy for actual use
+                    Image.open(io.BytesIO(image_data)).verify()
+                    image = Image.open(io.BytesIO(image_data))
+                except UnidentifiedImageError:
+                    st.error(f"❌ Image {i+1} ('{file.name}') is not a valid image file and was skipped.")
+                    continue
+                except Exception:
+                    st.error(f"❌ Image {i+1} ('{file.name}') is corrupted or malformed and was skipped.")
+                    continue
+                # ===== END FIX =====
+
+                with st.status(f"🔍 Analyzing Image {i+1}...", expanded=False) as status:
+                    try:
                         response = analyze_image(image)
                         if response and response.text:
                             conf = extract_confidence(response.text)
@@ -336,8 +356,8 @@ if upload_files:
                             status.update(label=f"✅ Image {i+1} Analyzed", state="complete")
                         else:
                             st.error(f"Could not analyze image {i+1}")
-                except Exception as e:
-                    st.error(f"Error processing image {i+1}: {e}")
+                    except Exception as e:
+                        st.error(f"Error analyzing image {i+1}: {e}")
 
             progress_bar.progress(1.0, text="✅ All images analyzed!")
 
@@ -386,8 +406,11 @@ if st.session_state.view_history:
             "timestamp": h['timestamp'],
             "image_name": h['image_name'],
         }]
-    except Exception as e:
-        st.error(f"Error loading history: {e}")
+    except Exception:
+        st.error("Could not load historical image. The file may have been moved or deleted.")
+    if st.button("⬅️ Back to Current Results"):
+        st.session_state.view_history = None
+        st.rerun()
 else:
     results_to_show = [
         {**r, "title": f"Analysis for Image {r['original_index']}", "timestamp": None}
@@ -411,17 +434,16 @@ for result in results_to_show:
             st.info("Moderate Confidence Prediction")
         else:
             st.warning("⚠️ Low Confidence Prediction")
-
-        st.write(result['clean_text'])
-
-        pdf_bytes = generate_pdf(result['clean_text'], result['confidence'])
-        st.download_button(
-            label="📥 Download Report (PDF)",
-            data=bytes(pdf_bytes),
-            file_name=f"analysis_{result.get('image_name', 'report')}.pdf",
-            mime="application/pdf",
-        )
-        st.info("⚠️ Disclaimer: Consult with a Doctor before making any decisions")
     else:
         st.warning("⚠️ Confidence score not found in AI response")
-        st.write(result['clean_text'])
+
+    st.write(result['clean_text'])
+
+    pdf_bytes = generate_pdf(result['clean_text'], result['confidence'])
+    st.download_button(
+        label="📥 Download Report (PDF)",
+        data=bytes(pdf_bytes),
+        file_name=f"analysis_{result.get('image_name', 'report')}.pdf",
+        mime="application/pdf",
+    )
+    st.info("⚠️ Disclaimer: Consult with a Doctor before making any decisions")
