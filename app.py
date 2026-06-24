@@ -11,14 +11,67 @@ import json
 from datetime import datetime
 import uuid
 import hashlib
+from api_validator import APIValidator
 
-# ================= API KEY CHECK =================
-if "GOOGLE_API_KEY" not in st.secrets:
-    st.error("API Key not found. Please set GOOGLE_API_KEY in Streamlit secrets.")
+# ================= API KEY VALIDATION AT STARTUP =================
+try:
+    if "GOOGLE_API_KEY" not in st.secrets:
+        st.error(
+            "⚠️ API Key Configuration Error\n\n"
+            "The GOOGLE_API_KEY is missing from your Streamlit secrets.\n\n"
+            "To fix this:\n"
+            "1. Create a `.streamlit/secrets.toml` file\n"
+            "2. Add: `GOOGLE_API_KEY = 'your-api-key-here'`\n"
+            "3. Get your key from: https://console.cloud.google.com"
+        )
+        st.info(
+            "**Alternatively** (for environment variables):\n"
+            "Set via shell: `export GOOGLE_API_KEY='your-key'`"
+        )
+        st.stop()
+
+    api_key = st.secrets["GOOGLE_API_KEY"]
+
+    if len(api_key.strip()) < 10:
+        st.error(
+            f"⚠️ API Key Validation Failed\n\n"
+            f"API key is too short (length: {len(api_key)}).\n"
+            "Please verify you've copied the full API key from Google Cloud console."
+        )
+        st.stop()
+
+    genai.configure(api_key=api_key)
+
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content("Say 'OK' in one word.", stream=False)
+        if not response or not response.text:
+            st.warning(
+                "⚠️ API Connectivity Test Failed\n\n"
+                "The Gemini API returned an unexpected response.\n"
+                "Please check:\n"
+                "- Your internet connection\n"
+                "- API rate limits\n"
+                "- API key permissions\n\n"
+                "Retrying in a moment..."
+            )
+    except google.api_core.exceptions.InvalidArgument as e:
+        st.error(
+            "⚠️ API Key Invalid\n\n"
+            f"Error: {str(e)}\n\n"
+            "Please verify your API key in Google Cloud console."
+        )
+        st.stop()
+    except Exception as e:
+        st.warning(
+            f"⚠️ API Connectivity Warning\n\n"
+            f"Could not verify API connectivity: {str(e)}\n\n"
+            "The application will attempt to proceed, but errors may occur."
+        )
+
+except Exception as e:
+    st.error(f"Unexpected error during API validation: {str(e)}")
     st.stop()
-
-# ================= CONFIGURE GEMINI =================
-genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 generation_config = {
     "temperature": 0.4,
