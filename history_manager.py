@@ -1,12 +1,17 @@
 import os
 import json
 import uuid
+import logging
 from datetime import datetime
+from shutil import copy2
 
 HISTORY_DIR = "history"
 METADATA_FILE = os.path.join(HISTORY_DIR, "metadata.json")
 IMAGES_DIR = os.path.join(HISTORY_DIR, "images")
 MAX_HISTORY_SIZE = 50
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def ensure_history_dirs():
     if not os.path.exists(IMAGES_DIR):
@@ -19,7 +24,20 @@ def save_to_history(image, confidence, clean_text, filename):
         try:
             with open(METADATA_FILE, "r") as f:
                 history = json.load(f)
-        except:
+        except json.JSONDecodeError as e:
+            logger.warning(f"Corrupted metadata file detected: {e}. Creating backup.")
+            backup_file = f"{METADATA_FILE}.bak"
+            try:
+                copy2(METADATA_FILE, backup_file)
+                logger.info(f"Backup created at {backup_file}")
+            except Exception as backup_err:
+                logger.error(f"Failed to create backup: {backup_err}")
+            history = []
+        except (IOError, OSError) as e:
+            logger.error(f"Failed to read metadata file: {e}. Starting with empty history.")
+            history = []
+        except Exception as e:
+            logger.error(f"Unexpected error loading history: {e}. Starting with empty history.")
             history = []
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -46,8 +64,8 @@ def save_to_history(image, confidence, clean_text, filename):
             if image_file and os.path.exists(image_file):
                 try:
                     os.remove(image_file)
-                except:
-                    pass
+                except (IOError, OSError) as e:
+                    logger.warning(f"Failed to remove evicted image {image_file}: {e}")
 
     with open(METADATA_FILE, "w") as f:
         json.dump(history, f, indent=4)
@@ -59,15 +77,25 @@ def load_history():
     try:
         with open(METADATA_FILE, "r") as f:
             return json.load(f)
-    except:
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse metadata file: {e}. Returning empty history.")
+        return []
+    except (IOError, OSError) as e:
+        logger.error(f"Failed to read metadata file: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"Unexpected error loading history: {e}")
         return []
 
 def clear_all_history():
     if os.path.exists(METADATA_FILE):
-        os.remove(METADATA_FILE)
+        try:
+            os.remove(METADATA_FILE)
+        except (IOError, OSError) as e:
+            logger.error(f"Failed to remove metadata file: {e}")
     if os.path.exists(IMAGES_DIR):
         for f in os.listdir(IMAGES_DIR):
             try:
                 os.remove(os.path.join(IMAGES_DIR, f))
-            except:
-                pass
+            except (IOError, OSError) as e:
+                logger.warning(f"Failed to remove image file {f}: {e}")
