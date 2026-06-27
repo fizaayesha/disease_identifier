@@ -12,6 +12,9 @@ from datetime import datetime
 import uuid
 import hashlib
 from api_validator import APIValidator
+from security_improvements import (
+    SanitizedErrorHandler, InputValidator, AuditLogger, logger
+)
 
 # ================= API KEY VALIDATION AT STARTUP =================
 try:
@@ -123,19 +126,30 @@ def save_users(users: dict):
 
 def register_user(username: str, password: str) -> tuple[bool, str]:
     users = load_users()
-    if username.strip() == "":
-        return False, "Username cannot be empty."
+
+    is_valid_user, user_error = InputValidator.validate_username(username)
+    if not is_valid_user:
+        logger.warning(f"Invalid username registration attempt: {user_error}")
+        return False, user_error
+
+    is_valid_pass, pass_error = InputValidator.validate_password(password)
+    if not is_valid_pass:
+        return False, pass_error
+
     if username in users:
+        logger.warning(f"Duplicate registration attempt: {username}")
         return False, "Username already exists."
-    if len(password) < 6:
-        return False, "Password must be at least 6 characters."
+
     users[username] = hash_password(password)
     save_users(users)
+    AuditLogger.log_authentication(username, success=True)
     return True, "Account created successfully!"
 
 def verify_user(username: str, password: str) -> bool:
     users = load_users()
-    return users.get(username) == hash_password(password)
+    is_valid = users.get(username) == hash_password(password)
+    AuditLogger.log_authentication(username, success=is_valid)
+    return is_valid
 
 # ================= AUTH GATE =================
 if "authenticated_user" not in st.session_state:
@@ -406,6 +420,7 @@ if upload_files:
                             }
                             st.session_state.analysis_results.append(res_entry)
                             save_to_history(image, conf, clean_text, file.name)
+                            AuditLogger.log_analysis(current_user, file.name, conf)
                             status.update(label=f"✅ Image {i+1} Analyzed", state="complete")
                         else:
                             st.error(f"Could not analyze image {i+1}")
