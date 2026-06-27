@@ -13,6 +13,9 @@ import uuid
 import hashlib
 from api_validator import APIValidator
 from file_validator import validate_uploaded_file
+from security_improvements import (
+    SanitizedErrorHandler, InputValidator, AuditLogger, logger
+)
 
 # ================= API KEY VALIDATION AT STARTUP =================
 try:
@@ -124,19 +127,30 @@ def save_users(users: dict):
 
 def register_user(username: str, password: str) -> tuple[bool, str]:
     users = load_users()
-    if username.strip() == "":
-        return False, "Username cannot be empty."
+
+    is_valid_user, user_error = InputValidator.validate_username(username)
+    if not is_valid_user:
+        logger.warning(f"Invalid username registration attempt: {user_error}")
+        return False, user_error
+
+    is_valid_pass, pass_error = InputValidator.validate_password(password)
+    if not is_valid_pass:
+        return False, pass_error
+
     if username in users:
+        logger.warning(f"Duplicate registration attempt: {username}")
         return False, "Username already exists."
-    if len(password) < 6:
-        return False, "Password must be at least 6 characters."
+
     users[username] = hash_password(password)
     save_users(users)
+    AuditLogger.log_authentication(username, success=True)
     return True, "Account created successfully!"
 
 def verify_user(username: str, password: str) -> bool:
     users = load_users()
-    return users.get(username) == hash_password(password)
+    is_valid = users.get(username) == hash_password(password)
+    AuditLogger.log_authentication(username, success=is_valid)
+    return is_valid
 
 # ================= AUTH GATE =================
 if "authenticated_user" not in st.session_state:
@@ -286,6 +300,10 @@ def clear_history():
     if os.path.exists(metadata_file):
         os.remove(metadata_file)
 
+# ================= FILE UPLOAD LIMITS =================
+MAX_FILES_PER_BATCH = 10
+MAX_FILE_SIZE = 5 * 1024 * 1024
+
 # ================= GEMINI ANALYSIS =================
 def analyze_image(image: Image.Image):
     model = genai.GenerativeModel(
@@ -341,14 +359,22 @@ upload_files = st.file_uploader(
     accept_multiple_files=True,
 )
 
-# File size validation (5 MB limit)
+# File count and size validation
 if upload_files:
-    MAX_FILE_SIZE = 5 * 1024 * 1024
     valid_files = []
+    skipped_count = 0
+
+    if len(upload_files) > MAX_FILES_PER_BATCH:
+        st.warning(
+            f"⚠️ You selected {len(upload_files)} files, but the maximum is {MAX_FILES_PER_BATCH} files per batch. "
+            f"The first {MAX_FILES_PER_BATCH} files will be processed, and {len(upload_files) - MAX_FILES_PER_BATCH} will be skipped."
+        )
+        upload_files = upload_files[:MAX_FILES_PER_BATCH]
 
     for file in upload_files:
         if file.size > MAX_FILE_SIZE:
             st.warning(f"⚠️ File '{file.name}' exceeds 5 MB and will be skipped.")
+            skipped_count += 1
         else:
             valid_files.append(file)
 
@@ -408,6 +434,7 @@ if upload_files:
                             }
                             st.session_state.analysis_results.append(res_entry)
                             save_to_history(image, conf, clean_text, file.name)
+                            AuditLogger.log_analysis(current_user, file.name, conf)
                             status.update(label=f"✅ Image {i+1} Analyzed", state="complete")
                         else:
                             st.error(f"Could not analyze image {i+1}")
