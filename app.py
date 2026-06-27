@@ -299,6 +299,10 @@ def clear_history():
     if os.path.exists(metadata_file):
         os.remove(metadata_file)
 
+# ================= FILE UPLOAD LIMITS =================
+MAX_FILES_PER_BATCH = 10
+MAX_FILE_SIZE = 5 * 1024 * 1024
+
 # ================= GEMINI ANALYSIS =================
 def analyze_image(image: Image.Image):
     model = genai.GenerativeModel(
@@ -354,14 +358,22 @@ upload_files = st.file_uploader(
     accept_multiple_files=True,
 )
 
-# File size validation (5 MB limit)
+# File count and size validation
 if upload_files:
-    MAX_FILE_SIZE = 5 * 1024 * 1024
     valid_files = []
+    skipped_count = 0
+
+    if len(upload_files) > MAX_FILES_PER_BATCH:
+        st.warning(
+            f"⚠️ You selected {len(upload_files)} files, but the maximum is {MAX_FILES_PER_BATCH} files per batch. "
+            f"The first {MAX_FILES_PER_BATCH} files will be processed, and {len(upload_files) - MAX_FILES_PER_BATCH} will be skipped."
+        )
+        upload_files = upload_files[:MAX_FILES_PER_BATCH]
 
     for file in upload_files:
         if file.size > MAX_FILE_SIZE:
             st.warning(f"⚠️ File '{file.name}' exceeds 5 MB and will be skipped.")
+            skipped_count += 1
         else:
             valid_files.append(file)
 
