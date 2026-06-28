@@ -12,6 +12,7 @@ from datetime import datetime
 import uuid
 import hashlib
 from api_validator import APIValidator
+from file_validator import validate_uploaded_file
 from security_improvements import (
     SanitizedErrorHandler, InputValidator, AuditLogger, logger
 )
@@ -394,15 +395,17 @@ if upload_files:
             for i, file in enumerate(valid_files):
                 progress_bar.progress(i / total, text=f"Analyzing image {i+1} of {total}...")
 
-                # ===== FIX FOR ISSUE #50: Proper exception handling for Image.open() =====
-                # Image.open() is lazy — it doesn't fully decode the image until it's used.
-                # Calling image.verify() forces full decoding immediately so corrupt or
-                # malformed images are caught here instead of crashing the app later.
+                # Validate file type by magic bytes before processing
+                image_data = file.getvalue()
+                is_valid, validation_error = validate_uploaded_file(
+                    image_data, file.name, ['jpeg', 'jpg', 'png']
+                )
+                if not is_valid:
+                    st.error(f"❌ Image {i+1} ('{file.name}'): {validation_error} File was skipped.")
+                    continue
+
+                # Load and verify image integrity
                 try:
-                    image_data = file.getvalue()
-                    # verify() detects corruption but closes the file after, so we
-                    # must re-open a fresh copy for actual use
-                    Image.open(io.BytesIO(image_data)).verify()
                     image = Image.open(io.BytesIO(image_data))
                 except UnidentifiedImageError:
                     st.error(f"❌ Image {i+1} ('{file.name}') is not a valid image file and was skipped.")
@@ -410,7 +413,6 @@ if upload_files:
                 except Exception:
                     st.error(f"❌ Image {i+1} ('{file.name}') is corrupted or malformed and was skipped.")
                     continue
-                # ===== END FIX =====
 
                 with st.status(f"🔍 Analyzing Image {i+1}...", expanded=False) as status:
                     try:
