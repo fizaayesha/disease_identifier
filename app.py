@@ -76,7 +76,18 @@ try:
 except Exception as e:
     st.error(f"Unexpected error during API validation: {str(e)}")
     st.stop()
+# ================= QUOTA MANAGEMENT =================
+from quota_manager import QuotaManager
 
+quota_manager = QuotaManager(
+    max_requests_per_hour=10,
+    max_requests_per_day=50,
+    global_max_daily=1000,
+    quota_file="quota_data.json"
+)
+
+if "user_id" not in st.session_state:
+    st.session_state.user_id = str(uuid.uuid4())
 generation_config = {
     "temperature": 0.4,
     "top_p": 1,
@@ -414,6 +425,19 @@ if upload_files:
                     st.error(f"❌ Image {i+1} ('{file.name}') is corrupted or malformed and was skipped.")
                     continue
 
+                can_request, reason, wait_seconds = quota_manager.can_make_request(st.session_state.user_id)
+                if not can_request:
+                    st.error(f"Rate limit exceeded: {reason}")
+                    quota_status = quota_manager.get_user_quota_status(st.session_state.user_id)
+                    st.info(
+                        f"**Quota Status:**\n"
+                        f"- Hourly: {quota_status['hourly_used']}/{quota_status['hourly_limit']} "
+                        f"(resets in {quota_status['hourly_reset_in_minutes']:.0f}m)\n"
+                        f"- Daily: {quota_status['daily_used']}/{quota_status['daily_limit']} "
+                        f"(resets in {quota_status['daily_reset_in_hours']:.1f}h)"
+                    )
+                    continue
+
                 with st.status(f"🔍 Analyzing Image {i+1}...", expanded=False) as status:
                     try:
                         response = analyze_image(image)
@@ -434,6 +458,7 @@ if upload_files:
                             }
                             st.session_state.analysis_results.append(res_entry)
                             save_to_history(image, conf, clean_text, file.name)
+                            quota_manager.record_request(st.session_state.user_id)
                             AuditLogger.log_analysis(current_user, file.name, conf)
                             status.update(label=f"✅ Image {i+1} Analyzed", state="complete")
                         else:
